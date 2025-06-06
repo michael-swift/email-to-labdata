@@ -1,0 +1,645 @@
+{
+  "results": {
+    "IMG_3163.jpg": {
+      "llm_extraction": {
+        "load_number": "6",
+        "samples": [
+          {
+            "sample_number": 1,
+            "concentration": 19.0,
+            "a260_a280": 1.83,
+            "a260_a230": 2.08
+          },
+          {
+            "sample_number": 2,
+            "concentration": 20.0,
+            "a260_a280": 1.8,
+            "a260_a230": 1.85
+          },
+          {
+            "sample_number": 3,
+            "concentration": 14.1,
+            "a260_a280": 1.85,
+            "a260_a230": 1.79
+          },
+          {
+            "sample_number": 4,
+            "concentration": 19.4,
+            "a260_a280": 1.79,
+            "a260_a230": 2.04
+          },
+          {
+            "sample_number": 5,
+            "concentration": 21.8,
+            "a260_a280": 1.77,
+            "a260_a230": 1.89
+          }
+        ]
+      },
+      "comparison": {
+        "load_number_match": true,
+        "sample_count_match": true,
+        "sample_matches": [
+          {
+            "sample_number": 1,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 1,
+              "concentration": 19.0,
+              "a260_a280": 1.83,
+              "a260_a230": 2.08
+            },
+            "ground_truth": {
+              "sample_number": 1,
+              "concentration": 19.0,
+              "a260_a280": 1.83,
+              "a260_a230": 2.08
+            }
+          },
+          {
+            "sample_number": 2,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 2,
+              "concentration": 20.0,
+              "a260_a280": 1.8,
+              "a260_a230": 1.85
+            },
+            "ground_truth": {
+              "sample_number": 2,
+              "concentration": 20.0,
+              "a260_a280": 1.8,
+              "a260_a230": 1.85
+            }
+          },
+          {
+            "sample_number": 3,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 3,
+              "concentration": 14.1,
+              "a260_a280": 1.85,
+              "a260_a230": 1.79
+            },
+            "ground_truth": {
+              "sample_number": 3,
+              "concentration": 14.1,
+              "a260_a280": 1.85,
+              "a260_a230": 1.79
+            }
+          },
+          {
+            "sample_number": 4,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 4,
+              "concentration": 19.4,
+              "a260_a280": 1.79,
+              "a260_a230": 2.04
+            },
+            "ground_truth": {
+              "sample_number": 4,
+              "concentration": 19.4,
+              "a260_a280": 1.79,
+              "a260_a230": 2.04
+            }
+          },
+          {
+            "sample_number": 5,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 5,
+              "concentration": 21.8,
+              "a260_a280": 1.77,
+              "a260_a230": 1.89
+            },
+            "ground_truth": {
+              "sample_number": 5,
+              "concentration": 21.8,
+              "a260_a280": 1.77,
+              "a260_a230": 1.89
+            }
+          }
+        ],
+        "accuracy_metrics": {
+          "field_accuracy": 1.0,
+          "total_fields": 15,
+          "correct_fields": 15
+        }
+      },
+      "success": true
+    },
+    "IMG_3168.jpg": {
+      "llm_extraction": {
+        "load_number": "14",
+        "samples": [
+          {
+            "sample_number": 9,
+            "concentration": 60.5,
+            "a260_a280": 1.89,
+            "a260_a230": 1.94
+          },
+          {
+            "sample_number": 10,
+            "concentration": 75.3,
+            "a260_a280": 1.87,
+            "a260_a230": 2.03
+          },
+          {
+            "sample_number": 11,
+            "concentration": 75.0,
+            "a260_a280": 1.88,
+            "a260_a230": 1.98
+          },
+          {
+            "sample_number": 12,
+            "concentration": 21.3,
+            "a260_a280": 1.91,
+            "a260_a230": 1.49
+          },
+          {
+            "sample_number": 13,
+            "concentration": 24.5,
+            "a260_a280": 1.89,
+            "a260_a230": 1.62
+          }
+        ]
+      },
+      "comparison": {
+        "load_number_match": true,
+        "sample_count_match": true,
+        "sample_matches": [
+          {
+            "sample_number": 9,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 9,
+              "concentration": 60.5,
+              "a260_a280": 1.89,
+              "a260_a230": 1.94
+            },
+            "ground_truth": {
+              "sample_number": 9,
+              "concentration": 60.5,
+              "a260_a280": 1.89,
+              "a260_a230": 1.94
+            }
+          },
+          {
+            "sample_number": 10,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 10,
+              "concentration": 75.3,
+              "a260_a280": 1.87,
+              "a260_a230": 2.03
+            },
+            "ground_truth": {
+              "sample_number": 10,
+              "concentration": 75.3,
+              "a260_a280": 1.87,
+              "a260_a230": 2.03
+            }
+          },
+          {
+            "sample_number": 11,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 11,
+              "concentration": 75.0,
+              "a260_a280": 1.88,
+              "a260_a230": 1.98
+            },
+            "ground_truth": {
+              "sample_number": 11,
+              "concentration": 75.0,
+              "a260_a280": 1.88,
+              "a260_a230": 1.98
+            }
+          },
+          {
+            "sample_number": 12,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 12,
+              "concentration": 21.3,
+              "a260_a280": 1.91,
+              "a260_a230": 1.49
+            },
+            "ground_truth": {
+              "sample_number": 12,
+              "concentration": 21.3,
+              "a260_a280": 1.91,
+              "a260_a230": 1.49
+            }
+          },
+          {
+            "sample_number": 13,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 13,
+              "concentration": 24.5,
+              "a260_a280": 1.89,
+              "a260_a230": 1.62
+            },
+            "ground_truth": {
+              "sample_number": 13,
+              "concentration": 24.5,
+              "a260_a280": 1.89,
+              "a260_a230": 1.62
+            }
+          }
+        ],
+        "accuracy_metrics": {
+          "field_accuracy": 1.0,
+          "total_fields": 15,
+          "correct_fields": 15
+        }
+      },
+      "success": true
+    },
+    "IMG_3169.jpg": {
+      "llm_extraction": {
+        "load_number": "14",
+        "samples": [
+          {
+            "sample_number": 4,
+            "concentration": 24.3,
+            "a260_a280": 1.93,
+            "a260_a230": 1.58
+          },
+          {
+            "sample_number": 5,
+            "concentration": 18.4,
+            "a260_a280": 1.78,
+            "a260_a230": 1.52
+          },
+          {
+            "sample_number": 6,
+            "concentration": 82.8,
+            "a260_a280": 1.88,
+            "a260_a230": 2.1
+          },
+          {
+            "sample_number": 7,
+            "concentration": 46.5,
+            "a260_a280": 1.85,
+            "a260_a230": 1.91
+          },
+          {
+            "sample_number": 8,
+            "concentration": 39.6,
+            "a260_a280": 1.86,
+            "a260_a230": 1.87
+          }
+        ]
+      },
+      "comparison": {
+        "load_number_match": true,
+        "sample_count_match": true,
+        "sample_matches": [
+          {
+            "sample_number": 4,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 4,
+              "concentration": 24.3,
+              "a260_a280": 1.93,
+              "a260_a230": 1.58
+            },
+            "ground_truth": {
+              "sample_number": 4,
+              "concentration": 24.3,
+              "a260_a280": 1.93,
+              "a260_a230": 1.58
+            }
+          },
+          {
+            "sample_number": 5,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 5,
+              "concentration": 18.4,
+              "a260_a280": 1.78,
+              "a260_a230": 1.52
+            },
+            "ground_truth": {
+              "sample_number": 5,
+              "concentration": 18.4,
+              "a260_a280": 1.78,
+              "a260_a230": 1.52
+            }
+          },
+          {
+            "sample_number": 6,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 6,
+              "concentration": 82.8,
+              "a260_a280": 1.88,
+              "a260_a230": 2.1
+            },
+            "ground_truth": {
+              "sample_number": 6,
+              "concentration": 82.8,
+              "a260_a280": 1.88,
+              "a260_a230": 2.1
+            }
+          },
+          {
+            "sample_number": 7,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 7,
+              "concentration": 46.5,
+              "a260_a280": 1.85,
+              "a260_a230": 1.91
+            },
+            "ground_truth": {
+              "sample_number": 7,
+              "concentration": 46.5,
+              "a260_a280": 1.85,
+              "a260_a230": 1.91
+            }
+          },
+          {
+            "sample_number": 8,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 8,
+              "concentration": 39.6,
+              "a260_a280": 1.86,
+              "a260_a230": 1.87
+            },
+            "ground_truth": {
+              "sample_number": 8,
+              "concentration": 39.6,
+              "a260_a280": 1.86,
+              "a260_a230": 1.87
+            }
+          }
+        ],
+        "accuracy_metrics": {
+          "field_accuracy": 1.0,
+          "total_fields": 15,
+          "correct_fields": 15
+        }
+      },
+      "success": true
+    },
+    "image.png": {
+      "llm_extraction": {
+        "load_number": "3",
+        "samples": [
+          {
+            "sample_number": 1,
+            "concentration": 45.3,
+            "a260_a280": 1.9,
+            "a260_a230": 2.64
+          },
+          {
+            "sample_number": 2,
+            "concentration": 37.4,
+            "a260_a280": 1.88,
+            "a260_a230": 2.33
+          }
+        ]
+      },
+      "comparison": {
+        "load_number_match": true,
+        "sample_count_match": true,
+        "sample_matches": [
+          {
+            "sample_number": 1,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 1,
+              "concentration": 45.3,
+              "a260_a280": 1.9,
+              "a260_a230": 2.64
+            },
+            "ground_truth": {
+              "sample_number": 1,
+              "concentration": 46.3,
+              "a260_a280": 1.9,
+              "a260_a230": 2.64
+            }
+          },
+          {
+            "sample_number": 2,
+            "concentration_match": true,
+            "a260_a280_match": true,
+            "a260_a230_match": true,
+            "llm_values": {
+              "sample_number": 2,
+              "concentration": 37.4,
+              "a260_a280": 1.88,
+              "a260_a230": 2.33
+            },
+            "ground_truth": {
+              "sample_number": 2,
+              "concentration": 37.4,
+              "a260_a280": 1.88,
+              "a260_a230": 2.33
+            }
+          }
+        ],
+        "accuracy_metrics": {
+          "field_accuracy": 1.0,
+          "total_fields": 6,
+          "correct_fields": 6
+        }
+      },
+      "success": true
+    }
+  },
+  "extraction_log": [
+    {
+      "image_path": "images/IMG_3163.jpg",
+      "success": true,
+      "duration": 9.769218921661377,
+      "tokens_used": 1291,
+      "raw_response": "```json\n{\n    \"load_number\": \"6\",\n    \"samples\": [\n        {\n            \"sample_number\": 1,\n            \"concentration\": 19.0,\n            \"a260_a280\": 1.83,\n            \"a260_a230\": 2.08\n        },\n        {\n            \"sample_number\": 2,\n            \"concentration\": 20.0,\n            \"a260_a280\": 1.80,\n            \"a260_a230\": 1.85\n        },\n        {\n            \"sample_number\": 3,\n            \"concentration\": 14.1,\n            \"a260_a280\": 1.85,\n            \"a260_a230\": 1.79\n        },\n  ",
+      "extracted_data": {
+        "load_number": "6",
+        "samples": [
+          {
+            "sample_number": 1,
+            "concentration": 19.0,
+            "a260_a280": 1.83,
+            "a260_a230": 2.08
+          },
+          {
+            "sample_number": 2,
+            "concentration": 20.0,
+            "a260_a280": 1.8,
+            "a260_a230": 1.85
+          },
+          {
+            "sample_number": 3,
+            "concentration": 14.1,
+            "a260_a280": 1.85,
+            "a260_a230": 1.79
+          },
+          {
+            "sample_number": 4,
+            "concentration": 19.4,
+            "a260_a280": 1.79,
+            "a260_a230": 2.04
+          },
+          {
+            "sample_number": 5,
+            "concentration": 21.8,
+            "a260_a280": 1.77,
+            "a260_a230": 1.89
+          }
+        ]
+      }
+    },
+    {
+      "image_path": "images/IMG_3168.jpg",
+      "success": true,
+      "duration": 9.576839447021484,
+      "tokens_used": 1291,
+      "raw_response": "```json\n{\n    \"load_number\": \"14\",\n    \"samples\": [\n        {\n            \"sample_number\": 9,\n            \"concentration\": 60.5,\n            \"a260_a280\": 1.89,\n            \"a260_a230\": 1.94\n        },\n        {\n            \"sample_number\": 10,\n            \"concentration\": 75.3,\n            \"a260_a280\": 1.87,\n            \"a260_a230\": 2.03\n        },\n        {\n            \"sample_number\": 11,\n            \"concentration\": 75.0,\n            \"a260_a280\": 1.88,\n            \"a260_a230\": 1.98\n        },",
+      "extracted_data": {
+        "load_number": "14",
+        "samples": [
+          {
+            "sample_number": 9,
+            "concentration": 60.5,
+            "a260_a280": 1.89,
+            "a260_a230": 1.94
+          },
+          {
+            "sample_number": 10,
+            "concentration": 75.3,
+            "a260_a280": 1.87,
+            "a260_a230": 2.03
+          },
+          {
+            "sample_number": 11,
+            "concentration": 75.0,
+            "a260_a280": 1.88,
+            "a260_a230": 1.98
+          },
+          {
+            "sample_number": 12,
+            "concentration": 21.3,
+            "a260_a280": 1.91,
+            "a260_a230": 1.49
+          },
+          {
+            "sample_number": 13,
+            "concentration": 24.5,
+            "a260_a280": 1.89,
+            "a260_a230": 1.62
+          }
+        ]
+      }
+    },
+    {
+      "image_path": "images/IMG_3169.jpg",
+      "success": true,
+      "duration": 12.018890142440796,
+      "tokens_used": 1291,
+      "raw_response": "```json\n{\n    \"load_number\": \"14\",\n    \"samples\": [\n        {\n            \"sample_number\": 4,\n            \"concentration\": 24.3,\n            \"a260_a280\": 1.93,\n            \"a260_a230\": 1.58\n        },\n        {\n            \"sample_number\": 5,\n            \"concentration\": 18.4,\n            \"a260_a280\": 1.78,\n            \"a260_a230\": 1.52\n        },\n        {\n            \"sample_number\": 6,\n            \"concentration\": 82.8,\n            \"a260_a280\": 1.88,\n            \"a260_a230\": 2.10\n        },\n ",
+      "extracted_data": {
+        "load_number": "14",
+        "samples": [
+          {
+            "sample_number": 4,
+            "concentration": 24.3,
+            "a260_a280": 1.93,
+            "a260_a230": 1.58
+          },
+          {
+            "sample_number": 5,
+            "concentration": 18.4,
+            "a260_a280": 1.78,
+            "a260_a230": 1.52
+          },
+          {
+            "sample_number": 6,
+            "concentration": 82.8,
+            "a260_a280": 1.88,
+            "a260_a230": 2.1
+          },
+          {
+            "sample_number": 7,
+            "concentration": 46.5,
+            "a260_a280": 1.85,
+            "a260_a230": 1.91
+          },
+          {
+            "sample_number": 8,
+            "concentration": 39.6,
+            "a260_a280": 1.86,
+            "a260_a230": 1.87
+          }
+        ]
+      }
+    },
+    {
+      "image_path": "images/image.png",
+      "success": true,
+      "duration": 5.014836072921753,
+      "tokens_used": 1153,
+      "raw_response": "```json\n{\n    \"load_number\": \"3\",\n    \"samples\": [\n        {\n            \"sample_number\": 1,\n            \"concentration\": 45.3,\n            \"a260_a280\": 1.90,\n            \"a260_a230\": 2.64\n        },\n        {\n            \"sample_number\": 2,\n            \"concentration\": 37.4,\n            \"a260_a280\": 1.88,\n            \"a260_a230\": 2.33\n        }\n    ]\n}\n```",
+      "extracted_data": {
+        "load_number": "3",
+        "samples": [
+          {
+            "sample_number": 1,
+            "concentration": 45.3,
+            "a260_a280": 1.9,
+            "a260_a230": 2.64
+          },
+          {
+            "sample_number": 2,
+            "concentration": 37.4,
+            "a260_a280": 1.88,
+            "a260_a230": 2.33
+          }
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "overall_accuracy": 1.0,
+    "successful_extractions": 4,
+    "total_images": 4
+  }
+}
