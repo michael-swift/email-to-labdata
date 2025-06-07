@@ -1,2 +1,7 @@
-openai==1.3.7
+# Direct dependencies for lambda_function.py
 boto3==1.34.0
+openai>=1.30.0
+
+# Note: Using latest openai version to avoid httpx compatibility issues
+# - boto3 includes: botocore, urllib3, s3transfer, jmespath, python-dateutil
+# - openai includes: httpx, pydantic, typing-extensions, annotated-types, etc.
