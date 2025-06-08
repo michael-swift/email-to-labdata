@@ -45,14 +45,18 @@ check_prerequisites() {
         exit 1
     fi
     
-    # Check .env file
-    if [ ! -f .env ]; then
+    # Check .env file (look in current directory or parent)
+    if [ -f .env ]; then
+        ENV_FILE=".env"
+    elif [ -f ../.env ]; then
+        ENV_FILE="../.env"
+    else
         log_error ".env file not found. Create it with OPENAI_API_KEY=your-key"
         exit 1
     fi
     
     # Load and check OPENAI_API_KEY
-    export $(cat .env | grep -v '^#' | xargs)
+    export $(cat $ENV_FILE | grep -v '^#' | xargs)
     if [ -z "$OPENAI_API_KEY" ]; then
         log_error "OPENAI_API_KEY not found in .env file"
         exit 1
@@ -91,7 +95,7 @@ deploy_lambda() {
     log_info "Building Docker image for ARM64 architecture..."
     # Use legacy builder for Lambda compatibility
     export DOCKER_BUILDKIT=0
-    docker build -t $ECR_REPOSITORY_NAME -f deploy/Dockerfile . || {
+    docker build -t $ECR_REPOSITORY_NAME . || {
         log_error "Docker build failed"
         exit 1
     }
