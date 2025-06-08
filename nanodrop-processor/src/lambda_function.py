@@ -181,7 +181,7 @@ def extract_nanodrop_data(image_bytes):
     1. Identify the assay type (RNA or DNA) from visual cues like:
        - Text saying "RNA" or "dsDNA" on screen  
        - A260/A280 ratios around 2.0 suggest RNA, around 1.8 suggest DNA
-    2. Find the measurement table with columns: # (sample number), ng/μL (concentration), A260/A280, A260/A230
+    2. Find the measurement table with columns: # (sample number), ng/uL (concentration), A260/A280, A260/A230
     3. Extract ALL visible rows in the table, including:
        - Regular white/light rows
        - Highlighted/selected blue rows
@@ -364,7 +364,7 @@ def generate_csv(data):
     
     # Header
     writer.writerow([
-        'Sample Number', 'Concentration (ng/μL)', 
+        'Sample Number', 'Concentration (ng/uL)', 
         'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type'
     ])
     
@@ -444,7 +444,7 @@ SAMPLE RESULTS:
         if concentration < 0:
             body += f"    Sample {sample_num}: INVALID (negative concentration: {concentration})\n"
         else:
-            body += f"    Sample {sample_num}: {concentration} ng/μL (260/280: {a260_280}, 260/230: {a260_230})\n"
+            body += f"    Sample {sample_num}: {concentration} ng/uL (260/280: {a260_280}, 260/230: {a260_230})\n"
     
     body += f"""
 
