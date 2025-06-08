@@ -1,6 +1,0 @@
-load_number,sample_number,concentration_ng_ul,a260_a280,a260_a230,quality_assessment,extraction_date,source_image
-14,4,24.3,1.93,1.58,Possible organic contamination,2025-06-06 12:00:29,IMG_3169.jpg
-14,5,18.4,1.78,1.52,Possible protein contamination; Possible organic contamination,2025-06-06 12:00:29,IMG_3169.jpg
-14,6,82.8,1.88,2.1,Good quality,2025-06-06 12:00:29,IMG_3169.jpg
-14,7,46.5,1.85,1.91,Good quality,2025-06-06 12:00:29,IMG_3169.jpg
-14,8,39.6,1.86,1.87,Good quality,2025-06-06 12:00:29,IMG_3169.jpg

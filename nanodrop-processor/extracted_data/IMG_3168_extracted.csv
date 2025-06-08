@@ -1,6 +1,0 @@
-load_number,sample_number,concentration_ng_ul,a260_a280,a260_a230,quality_assessment,extraction_date,source_image
-14,9,60.5,1.89,1.94,Good quality,2025-06-06 12:00:29,IMG_3168.jpg
-14,10,75.3,1.87,2.03,Good quality,2025-06-06 12:00:29,IMG_3168.jpg
-14,11,75.0,1.88,1.98,Good quality,2025-06-06 12:00:29,IMG_3168.jpg
-14,12,21.3,1.91,1.49,Possible organic contamination,2025-06-06 12:00:29,IMG_3168.jpg
-14,13,24.5,1.89,1.62,Possible organic contamination,2025-06-06 12:00:29,IMG_3168.jpg

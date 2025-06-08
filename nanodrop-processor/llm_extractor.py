@@ -55,15 +55,22 @@ class NanodropLLMExtractor:
 Analyze this Nanodrop spectrophotometer screen image and extract ALL visible measurement data from the table.
 
 IMPORTANT INSTRUCTIONS:
-1. Look for the Load number (e.g., "Load #6", "Load #14")
-2. Find the measurement table with columns: # (sample number), ng/μL (concentration), A260/A280, A260/A230
-3. Extract ALL visible rows, including any highlighted/selected ones
-4. Be EXTREMELY precise with decimal values - if you see "19.0", return exactly 19.0, not 19
-5. Some sample numbers may not be sequential (e.g., you might see samples 9,10,11,12,13)
+1. Look for the Load number (e.g., "Load #6", "Load #14") - ignore this for results output
+2. Identify the assay type (RNA or DNA) from visual cues like:
+   - Text saying "RNA" or "dsDNA" on screen
+   - A260/A280 ratios around 2.0 suggest RNA, around 1.8 suggest DNA
+3. Find the measurement table with columns: # (sample number), ng/μL (concentration), A260/A280, A260/A230
+4. Extract ALL visible rows in the table, including:
+   - Regular white/light rows
+   - Highlighted/selected blue rows
+   - ANY row with data, even if values are negative or unusual
+5. Be EXTREMELY precise with decimal values - if you see "19.0", return exactly 19.0, not 19
+6. Include negative values if present (e.g., -2.1, -2.55)
+7. Some sample numbers may not be sequential (e.g., you might see samples 9,10,11,12,13)
 
 Return data in this EXACT JSON format:
 {
-    "load_number": "6",
+    "assay_type": "RNA",
     "samples": [
         {
             "sample_number": 1,
@@ -75,10 +82,11 @@ Return data in this EXACT JSON format:
 }
 
 CRITICAL: 
-- Extract ALL rows you can see in the table
+- Extract EVERY row you can see in the table, including negative/problematic values
 - Preserve exact decimal precision
 - Include both regular and highlighted/blue rows
 - Sample numbers should match what's displayed (may not start at 1)
+- Do NOT include the load number in output - only assay_type and samples
 """
         
         start_time = time.time()
@@ -183,7 +191,7 @@ CRITICAL:
         if not isinstance(data, dict):
             return False
         
-        if "load_number" not in data or "samples" not in data:
+        if "samples" not in data:
             return False
         
         if not isinstance(data["samples"], list):
@@ -205,7 +213,7 @@ CRITICAL:
         print("Warning: Using manual parsing fallback")
         
         return {
-            "load_number": "unknown",
+            "assay_type": "unknown",
             "samples": [],
             "parsing_error": "Failed to parse LLM response",
             "raw_response": response_text[:200]
@@ -250,6 +258,17 @@ def load_ground_truth() -> Dict[str, Dict]:
             "samples": [
                 {"sample_number": 1, "concentration": 46.3, "a260_a280": 1.90, "a260_a230": 2.64},
                 {"sample_number": 2, "concentration": 37.4, "a260_a280": 1.88, "a260_a230": 2.33},
+            ]
+        },
+        "nanodrop_load_6_rna.jpg": {
+            "load_number": "6",
+            "assay_type": "RNA",
+            "samples": [
+                {"sample_number": 1, "concentration": 87.3, "a260_a280": 1.94, "a260_a230": 2.07},
+                {"sample_number": 2, "concentration": 141.7, "a260_a280": 1.89, "a260_a230": 2.01},
+                {"sample_number": 3, "concentration": 74.5, "a260_a280": 1.96, "a260_a230": 2.14},
+                {"sample_number": 4, "concentration": 71.4, "a260_a280": 1.85, "a260_a230": 2.0},
+                {"sample_number": 5, "concentration": -2.1, "a260_a280": 2.85, "a260_a230": -2.55},
             ]
         }
     }

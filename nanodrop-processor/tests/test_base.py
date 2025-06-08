@@ -11,17 +11,16 @@ class TestProjectSetup:
         project_root = Path(__file__).parent.parent
         
         # Check main directories
-        assert (project_root / "src").exists()
         assert (project_root / "tests").exists()
-        assert (project_root / "config").exists()
+        assert (project_root / "images").exists()
+        assert (project_root / "extracted_data").exists()
         
-        # Check src subdirectories
-        src_dirs = ["api", "processors", "models", "services", "workers", "utils"]
-        for dir_name in src_dirs:
-            assert (project_root / "src" / dir_name).exists()
+        # Check main files
+        assert (project_root / "lambda_function.py").exists()
+        assert (project_root / "llm_extractor.py").exists()
         
         # Check test subdirectories
-        test_dirs = ["unit", "integration", "fixtures"]
+        test_dirs = ["unit", "fixtures"]
         for dir_name in test_dirs:
             assert (project_root / "tests" / dir_name).exists()
     

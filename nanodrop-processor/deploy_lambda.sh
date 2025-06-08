@@ -88,7 +88,9 @@ deploy_lambda() {
     aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
     
     # Step 3: Build Docker image
-    log_info "Building Docker image..."
+    log_info "Building Docker image for ARM64 architecture..."
+    # Use legacy builder for Lambda compatibility
+    export DOCKER_BUILDKIT=0
     docker build -t $ECR_REPOSITORY_NAME . || {
         log_error "Docker build failed"
         exit 1
@@ -205,6 +207,7 @@ deploy_function() {
             --region $AWS_REGION \
             --timeout 60 \
             --memory-size 512 \
+            --architectures arm64 \
             --environment Variables={OPENAI_API_KEY=$OPENAI_API_KEY} || {
                 log_error "Failed to create Lambda function"
                 exit 1
