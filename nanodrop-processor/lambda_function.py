@@ -17,6 +17,7 @@ from io import BytesIO
 import csv
 import openai
 from datetime import datetime
+from security_config import SecurityConfig
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -24,6 +25,9 @@ ses = boto3.client('ses', region_name='us-west-2')
 
 # Initialize OpenAI client (will be created when needed or mocked for testing)
 openai_client = None
+
+# Initialize security configuration
+security = SecurityConfig()
 
 def get_openai_client():
     """Get or create OpenAI client."""
@@ -55,11 +59,50 @@ def lambda_handler(event, context):
         
         print(f"Processing email from: {from_email}, subject: {subject}")
         
+        # Security validation
+        try:
+            # Validate sender email
+            email_validation = security.validate_email_sender(from_email)
+            if not email_validation['valid']:
+                security.log_security_event('EmailBlocked', from_email, email_validation['reason'])
+                send_error_email(from_email, f"Email blocked: {email_validation['reason']}")
+                return {'statusCode': 200, 'body': 'Email blocked'}
+            
+            # Check rate limits
+            rate_check = security.check_rate_limit(from_email)
+            if not rate_check['allowed']:
+                security.log_security_event('RateLimitExceeded', from_email, rate_check['reason'])
+                send_error_email(from_email, f"Rate limit exceeded: {rate_check['reason']}. Please try again in {rate_check['retry_after']} seconds.")
+                return {'statusCode': 200, 'body': 'Rate limited'}
+        
+        except Exception as e:
+            print(f"Security validation error: {str(e)}")
+            # Continue processing if security check fails (fail open for availability)
+        
         # Extract all image attachments
         image_attachments = extract_images_from_email(msg)
         if not image_attachments:
             send_error_email(from_email, "No image attachments found")
             return {'statusCode': 200, 'body': 'No images found'}
+        
+        # Validate attachments
+        try:
+            attachment_data = []
+            for img_data in image_attachments:
+                attachment_data.append({
+                    'content_type': 'image/jpeg',  # Assume JPEG for extracted images
+                    'data': img_data
+                })
+            
+            attachment_validation = security.validate_attachments(attachment_data)
+            if not attachment_validation['valid']:
+                security.log_security_event('InvalidAttachment', from_email, '; '.join(attachment_validation['errors']))
+                send_error_email(from_email, f"Invalid attachments: {'; '.join(attachment_validation['errors'])}")
+                return {'statusCode': 200, 'body': 'Invalid attachments'}
+        
+        except Exception as e:
+            print(f"Attachment validation error: {str(e)}")
+            # Continue processing if attachment validation fails
         
         print(f"Found {len(image_attachments)} image(s) to process")
         

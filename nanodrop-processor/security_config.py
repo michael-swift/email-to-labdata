@@ -78,14 +78,24 @@ class SecurityConfig:
                     'AttributeType': 'S'
                 }
             ],
-            BillingMode='PAY_PER_REQUEST',
-            TimeToLiveSpecification={
-                'AttributeName': 'ttl',
-                'Enabled': True
-            }
+            BillingMode='PAY_PER_REQUEST'
         )
         
+        # Wait for table to be created
         table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
+        
+        # Enable TTL after table creation (for compatibility)
+        try:
+            table.meta.client.update_time_to_live(
+                TableName=self.table_name,
+                TimeToLiveSpecification={
+                    'AttributeName': 'ttl',
+                    'Enabled': True
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Could not enable TTL: {e}")
+        
         self.rate_table = table
     
     def validate_email_sender(self, from_email: str) -> Dict[str, any]:
