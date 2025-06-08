@@ -6,9 +6,12 @@ An AWS Lambda-based service that processes Nanodrop spectrophotometer images sen
 
 ```
 User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
+                           ↓
+                    Security Layer
+                    (Rate Limiting, Validation)
 ```
 
-**Status**: ✅ FULLY FUNCTIONAL - Production ready serverless system
+**Status**: ✅ FULLY FUNCTIONAL - Production ready with security hardening
 
 ## How It Works
 
@@ -81,12 +84,14 @@ make test
 ```
 nanodrop-processor/
 ├── lambda_function.py       # Main Lambda handler
+├── llm_extractor.py        # LLM extraction logic (deprecated)
+├── security_config.py      # Security configuration
 ├── Dockerfile              # Docker container for Lambda
 ├── deploy_lambda.sh        # Deployment script
 ├── lambda_requirements.txt # Minimal Lambda dependencies
 ├── test_lambda_local.py    # Local testing script
-├── llm_extractor.py        # LLM extraction logic
-├── src/                    # Future full application
+├── test_lambda_security.py # Security feature testing
+├── secure_iam_policy.json  # IAM policy with least privilege
 ├── tests/                  # Comprehensive test suite
 └── images/                 # Sample Nanodrop images
 ```
@@ -102,9 +107,12 @@ The Lambda function (`lambda_function.py`) handles:
 ## Key Features
 
 - **Automated Email Processing**: SES integration for receiving emails
-- **Image Analysis**: GPT-4o vision API for data extraction
+- **Image Analysis**: GPT-4o vision API for data extraction  
+- **Multi-Image Support**: Process multiple images with intelligent merging
+- **Assay Type Detection**: Automatic RNA/DNA identification
 - **Quality Assessment**: Automatic contamination detection
-- **CSV Export**: Formatted results with quality indicators
+- **CSV Export**: Formatted results with quality indicators and LLM commentary
+- **Security Hardening**: Rate limiting (3/hour, 10/day), input validation
 - **Error Handling**: Graceful failures with user notifications
 
 ## AWS Resources Required
@@ -113,6 +121,8 @@ The Lambda function (`lambda_function.py`) handles:
 - **Lambda Function**: `nanodrop-processor`
 - **SES Domain**: Verified domain for sending/receiving
 - **IAM Role**: Lambda execution with S3 and SES permissions
+- **DynamoDB Table**: `nanodrop-rate-limits` (auto-created for rate limiting)
+- **ECR Repository**: Container images for Lambda deployment
 
 ## Environment Variables
 
@@ -148,6 +158,7 @@ make test
 - **Memory Usage**: 156 MB peak
 - **Cost per Email**: ~$0.032
 - **Accuracy**: 100% field extraction on test images
+- **Security**: Rate limiting, input validation, DynamoDB tracking
 
 ## Optional Enhancements
 
