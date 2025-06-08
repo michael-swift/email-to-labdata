@@ -12,7 +12,7 @@ VENV_ACTIVATE := . $(VENV)/bin/activate
 install:
 	$(PYTHON) -m venv $(VENV)
 	$(VENV_ACTIVATE) && $(PIP) install --upgrade pip
-	$(VENV_ACTIVATE) && $(PIP) install -r requirements.txt
+	$(VENV_ACTIVATE) && $(PIP) install -r requirements-dev.txt
 	$(VENV_ACTIVATE) && $(PIP) install -e .
 
 # Run all tests

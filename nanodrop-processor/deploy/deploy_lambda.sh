@@ -91,7 +91,7 @@ deploy_lambda() {
     log_info "Building Docker image for ARM64 architecture..."
     # Use legacy builder for Lambda compatibility
     export DOCKER_BUILDKIT=0
-    docker build -t $ECR_REPOSITORY_NAME . || {
+    docker build -t $ECR_REPOSITORY_NAME -f deploy/Dockerfile . || {
         log_error "Docker build failed"
         exit 1
     }

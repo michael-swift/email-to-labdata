@@ -11,8 +11,8 @@ import tempfile
 from io import BytesIO
 from PIL import Image
 
-# Add current directory to path for imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add src directory to path for imports
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 def test_imports():
     """Test that all imports work correctly."""

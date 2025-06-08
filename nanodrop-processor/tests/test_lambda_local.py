@@ -27,6 +27,8 @@ def mock_send_raw_email(*args, **kwargs):
 boto3.client('ses').send_email = mock_send_email
 boto3.client('ses').send_raw_email = mock_send_raw_email
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 from lambda_function import lambda_handler
 
 # Mock S3 event (simulates what Lambda gets when email arrives)

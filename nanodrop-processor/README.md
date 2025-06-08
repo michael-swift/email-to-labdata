@@ -33,7 +33,7 @@ User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
 echo "OPENAI_API_KEY=your-key-here" > .env
 
 # 2. Deploy to AWS
-./deploy_lambda.sh
+./deploy/deploy_lambda.sh
 
 # 3. Send test email to verify
 ```
@@ -48,7 +48,7 @@ aws logs tail /aws/lambda/nanodrop-processor --follow
 ### 2. Test Locally
 ```bash
 # Test Lambda function without AWS
-python3 test_lambda_local.py
+python3 tests/test_lambda_local.py
 ```
 
 ### 3. Common Issues
@@ -83,22 +83,32 @@ make test
 
 ```
 nanodrop-processor/
-├── lambda_function.py       # Main Lambda handler
-├── llm_extractor.py        # LLM extraction logic (deprecated)
-├── security_config.py      # Security configuration
-├── Dockerfile              # Docker container for Lambda
-├── deploy_lambda.sh        # Deployment script
-├── lambda_requirements.txt # Minimal Lambda dependencies
-├── test_lambda_local.py    # Local testing script
-├── test_lambda_security.py # Security feature testing
-├── secure_iam_policy.json  # IAM policy with least privilege
-├── tests/                  # Comprehensive test suite
-└── images/                 # Sample Nanodrop images
+├── src/                     # Lambda source code
+│   ├── lambda_function.py   # Main Lambda handler
+│   └── security_config.py   # Security configuration
+├── deploy/                  # Deployment files
+│   ├── Dockerfile          # Docker container for Lambda
+│   ├── deploy_lambda.sh    # Deployment script
+│   ├── requirements.txt    # Lambda dependencies
+│   └── iam_policy.json     # IAM policy with least privilege
+├── tests/                   # All test files
+│   ├── test_lambda_local.py    # Local testing script
+│   ├── test_lambda_security.py # Security testing
+│   └── unit/               # Unit tests
+├── docs/                    # Documentation
+│   ├── DEBUGGING_GUIDE.md
+│   ├── PRODUCTION_STATUS.md
+│   └── STRUCTURE.md
+├── images/                  # Sample Nanodrop images
+├── README.md
+├── Makefile
+├── requirements-dev.txt     # Development dependencies
+└── run_tests.sh
 ```
 
 ## Lambda Function Overview
 
-The Lambda function (`lambda_function.py`) handles:
+The Lambda function (`src/lambda_function.py`) handles:
 1. **Email Processing**: Extracts images from S3-stored emails
 2. **Image Analysis**: Uses GPT-4o to extract Nanodrop data
 3. **CSV Generation**: Creates formatted CSV with quality assessment
@@ -134,7 +144,7 @@ OPENAI_API_KEY=sk-...  # Required for GPT-4o API access
 
 ```bash
 # Test locally without AWS
-python3 test_lambda_local.py
+python3 tests/test_lambda_local.py
 
 # Run full test suite
 make test
