@@ -40,12 +40,22 @@ class SecurityConfig:
         'image/jpg'
     ]
     
+    # Reputable top-level domains for research use
+    ALLOWED_TLDS = [
+        '.com', '.org', '.edu', '.gov', '.net', '.ai', '.io',
+        '.ac.uk', '.ac.jp', '.ac.kr', '.ac.in',  # Academic domains
+        '.de', '.fr', '.it', '.nl', '.ch', '.se', '.dk', '.no',  # European research
+        '.ca', '.au', '.nz', '.jp', '.kr', '.sg', '.hk',  # International
+        '.mil', '.int'  # Government and international orgs
+    ]
+    
     # Blocked patterns for obvious abuse
     BLOCKED_EMAIL_PATTERNS = [
-        '@tempmail.',
-        '@guerrillamail.',
-        '@10minutemail.',
-        # Add known spam domains
+        '@tempmail.', '@guerrillamail.', '@10minutemail.',
+        '@mailinator.', '@yopmail.', '@throwaway.',
+        '@spam.', '@fake.', '@test.', '@example.',
+        # Suspicious TLDs
+        '.tk', '.ml', '.ga', '.cf'  # Free domains often used for spam
     ]
     
     def __init__(self, dynamodb_table_name: str = 'nanodrop-rate-limits'):
@@ -99,26 +109,35 @@ class SecurityConfig:
         self.rate_table = table
     
     def validate_email_sender(self, from_email: str) -> Dict[str, any]:
-        """Basic email validation - only block obvious abuse."""
+        """Enhanced email validation - check for reputable domains."""
         result = {'valid': True, 'reason': ''}
         
         if not from_email:
             result['valid'] = False
-            result['reason'] = 'No sender email'
+            result['reason'] = 'No sender email provided'
             return result
-        
-        # Check for blocked patterns
-        email_lower = from_email.lower()
-        for pattern in self.BLOCKED_EMAIL_PATTERNS:
-            if pattern in email_lower:
-                result['valid'] = False
-                result['reason'] = 'Blocked email provider'
-                return result
         
         # Basic format check
         if '@' not in from_email or '.' not in from_email.split('@')[-1]:
             result['valid'] = False
             result['reason'] = 'Invalid email format'
+            return result
+        
+        email_lower = from_email.lower()
+        domain = email_lower.split('@')[-1]
+        
+        # Check for blocked patterns
+        for pattern in self.BLOCKED_EMAIL_PATTERNS:
+            if pattern in email_lower:
+                result['valid'] = False
+                result['reason'] = 'Email from blocked provider (temporary/spam domain)'
+                return result
+        
+        # Check for reputable TLD
+        has_reputable_tld = any(domain.endswith(tld) for tld in self.ALLOWED_TLDS)
+        if not has_reputable_tld:
+            result['valid'] = False
+            result['reason'] = f'Email domain "{domain}" not from a recognized institution or organization'
             return result
         
         return result
@@ -212,33 +231,65 @@ class SecurityConfig:
             return result
     
     def validate_image_content(self, image_data: bytes) -> Dict[str, any]:
-        """Validate image is legitimate (not malware, reasonable size)."""
+        """Enhanced image validation with magic number checking."""
         result = {'valid': True, 'errors': []}
         
+        # Check file size first (before processing)
+        size_mb = len(image_data) / (1024 * 1024)
+        if size_mb > self.MAX_ATTACHMENT_SIZE_MB:
+            result['valid'] = False
+            result['errors'].append(f'Image too large ({size_mb:.1f}MB). Maximum {self.MAX_ATTACHMENT_SIZE_MB}MB allowed.')
+            return result
+        
+        # Magic number validation for common image formats
+        if not self._validate_image_magic_numbers(image_data):
+            result['valid'] = False
+            result['errors'].append('File is not a valid image format (JPEG, PNG, or GIF)')
+            return result
+        
         try:
-            # Verify it's a valid image
+            # Verify it's a valid image that can be opened
             img = Image.open(io.BytesIO(image_data))
             
-            # Size validation
+            # Dimension validation
             if img.width < 200 or img.height < 200:
                 result['valid'] = False
-                result['errors'].append('Image too small (likely not a nanodrop screen)')
+                result['errors'].append('Image too small (minimum 200x200 pixels). Please ensure the entire Nanodrop screen is visible.')
             
             if img.width > 5000 or img.height > 5000:
                 result['valid'] = False
-                result['errors'].append('Image too large')
+                result['errors'].append('Image dimensions too large (maximum 5000x5000 pixels)')
             
             # Check aspect ratio (nanodrop screens are typically ~4:3 or 16:9)
             aspect_ratio = img.width / img.height
             if aspect_ratio < 0.5 or aspect_ratio > 3.0:
                 result['valid'] = False
-                result['errors'].append('Unusual aspect ratio (likely not a nanodrop screen)')
+                result['errors'].append('Unusual aspect ratio. Please ensure the photo shows a complete equipment screen.')
             
         except Exception as e:
             result['valid'] = False
-            result['errors'].append('Invalid or corrupted image file')
+            result['errors'].append('Invalid or corrupted image file. Please try re-taking the photo.')
         
         return result
+    
+    def _validate_image_magic_numbers(self, image_data: bytes) -> bool:
+        """Check file magic numbers to verify image format."""
+        if len(image_data) < 12:
+            return False
+        
+        # JPEG magic numbers
+        if image_data[:2] == b'\xff\xd8':
+            return True
+        
+        # PNG magic numbers  
+        if image_data[:8] == b'\x89\x50\x4e\x47\x0d\x0a\x1a\x0a':
+            return True
+        
+        # GIF magic numbers
+        if image_data[:6] in (b'GIF87a', b'GIF89a'):
+            return True
+        
+        return False
     
     def validate_attachments(self, attachments: List[Dict]) -> Dict[str, any]:
         """Enhanced attachment validation."""
@@ -247,9 +298,14 @@ class SecurityConfig:
             'errors': []
         }
         
+        if len(attachments) == 0:
+            result['valid'] = False
+            result['errors'].append("No images found. Please attach a photo of your Nanodrop screen.")
+            return result
+        
         if len(attachments) > self.MAX_ATTACHMENTS_PER_EMAIL:
             result['valid'] = False
-            result['errors'].append(f"Too many attachments. Max {self.MAX_ATTACHMENTS_PER_EMAIL} allowed.")
+            result['errors'].append(f"Too many attachments ({len(attachments)}). Maximum {self.MAX_ATTACHMENTS_PER_EMAIL} images allowed per email.")
         
         total_size = 0
         for i, attachment in enumerate(attachments):
@@ -257,26 +313,20 @@ class SecurityConfig:
             content_type = attachment.get('content_type', '')
             if content_type not in self.ALLOWED_MIME_TYPES:
                 result['valid'] = False
-                result['errors'].append(f"Attachment {i+1}: Unsupported file type {content_type}")
+                result['errors'].append(f"Image {i+1}: Unsupported file type '{content_type}'. Please send JPEG, PNG, or GIF images only.")
             
-            # Check size
+            # Validate image content (includes size check and magic numbers)
             image_data = attachment.get('data', b'')
-            size_mb = len(image_data) / (1024 * 1024)
-            if size_mb > self.MAX_ATTACHMENT_SIZE_MB:
-                result['valid'] = False
-                result['errors'].append(f"Attachment {i+1}: Too large ({size_mb:.1f}MB). Max {self.MAX_ATTACHMENT_SIZE_MB}MB allowed.")
-            
-            # Validate image content
             image_validation = self.validate_image_content(image_data)
             if not image_validation['valid']:
                 result['valid'] = False
-                result['errors'].extend([f"Attachment {i+1}: {error}" for error in image_validation['errors']])
+                result['errors'].extend([f"Image {i+1}: {error}" for error in image_validation['errors']])
             
-            total_size += size_mb
+            total_size += len(image_data) / (1024 * 1024)
         
         if total_size > self.MAX_EMAIL_SIZE_MB:
             result['valid'] = False
-            result['errors'].append(f"Total email size too large ({total_size:.1f}MB). Max {self.MAX_EMAIL_SIZE_MB}MB allowed.")
+            result['errors'].append(f"Total email size too large ({total_size:.1f}MB). Maximum {self.MAX_EMAIL_SIZE_MB}MB allowed. Try compressing your images or sending fewer at once.")
         
         return result
     

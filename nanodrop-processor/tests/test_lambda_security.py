@@ -56,7 +56,7 @@ def test_security_validation():
             security = SecurityConfig()
             
             # Test email validation (doesn't require AWS)
-            valid_email = security.validate_email_sender("test@example.com")
+            valid_email = security.validate_email_sender("researcher@university.edu")
             print(f"✓ Email validation works: {valid_email}")
             
             # Test attachment validation with dummy image
@@ -180,7 +180,7 @@ def test_email_parsing():
             # Create a test email with image attachment
             msg = MIMEMultipart()
             msg['Subject'] = 'Test Nanodrop'
-            msg['From'] = 'test@example.com'
+            msg['From'] = 'researcher@university.edu'
             msg['To'] = 'nanodrop@seminalcapital.net'
             
             # Create dummy image
