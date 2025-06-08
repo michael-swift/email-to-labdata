@@ -1,0 +1,68 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowS3EmailBucketAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::nanodrop-emails-seminalcapital/incoming/*"
+            ]
+        },
+        {
+            "Sid": "AllowSESEmailSending",
+            "Effect": "Allow",
+            "Action": [
+                "ses:SendEmail",
+                "ses:SendRawEmail"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "ses:FromAddress": "nanodrop@seminalcapital.net"
+                }
+            }
+        },
+        {
+            "Sid": "AllowDynamoDBRateLimiting",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:CreateTable",
+                "dynamodb:DescribeTable",
+                "dynamodb:DescribeTimeToLive",
+                "dynamodb:UpdateTimeToLive"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:us-west-2:*:table/nanodrop-rate-limits"
+            ]
+        },
+        {
+            "Sid": "AllowCloudWatchMetrics",
+            "Effect": "Allow",
+            "Action": [
+                "cloudwatch:PutMetricData"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringLike": {
+                    "cloudwatch:namespace": "NanodropProcessor/*"
+                }
+            }
+        },
+        {
+            "Sid": "AllowLambdaBasicExecution",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:us-west-2:*:log-group:/aws/lambda/nanodrop-processor:*"
+        }
+    ]
+} 

@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""
+Improved security configuration for open Nanodrop processor service.
+Balances security with usability for legitimate users.
+"""
+
+import os
+import hashlib
+import time
+from typing import List, Dict, Optional
+import boto3
+from datetime import datetime, timedelta
+from PIL import Image
+import io
+
+class SecurityConfig:
+    """Security configuration optimized for open service."""
+    
+    # Remove domain validation - allow any sender
+    VALIDATE_EMAIL_DOMAINS = False
+    
+    # Rate limiting (conservative for research use)
+    RATE_LIMIT_PER_HOUR = 3
+    RATE_LIMIT_PER_DAY = 10
+    BURST_LIMIT = 2  # Max 2 emails in 5 minutes
+    
+    # Input validation limits
+    MAX_ATTACHMENT_SIZE_MB = 10
+    MAX_ATTACHMENTS_PER_EMAIL = 5
+    MAX_EMAIL_SIZE_MB = 25
+    
+    # Cost protection
+    DAILY_OPENAI_LIMIT_USD = 50.00
+    DAILY_TOKEN_LIMIT = 1000000  # ~$20-30 for GPT-4
+    
+    # Allowed file types
+    ALLOWED_MIME_TYPES = [
+        'image/jpeg',
+        'image/png', 
+        'image/jpg'
+    ]
+    
+    # Blocked patterns for obvious abuse
+    BLOCKED_EMAIL_PATTERNS = [
+        '@tempmail.',
+        '@guerrillamail.',
+        '@10minutemail.',
+        # Add known spam domains
+    ]
+    
+    def __init__(self, dynamodb_table_name: str = 'nanodrop-rate-limits'):
+        self.dynamodb = boto3.resource('dynamodb')
+        self.cloudwatch = boto3.client('cloudwatch')
+        self.table_name = dynamodb_table_name
+        self._ensure_rate_limit_table()
+    
+    def _ensure_rate_limit_table(self):
+        """Ensure DynamoDB table exists for rate limiting."""
+        try:
+            self.rate_table = self.dynamodb.Table(self.table_name)
+            self.rate_table.load()
+        except Exception:
+            self._create_rate_limit_table()
+    
+    def _create_rate_limit_table(self):
+        """Create DynamoDB table for rate limiting."""
+        table = self.dynamodb.create_table(
+            TableName=self.table_name,
+            KeySchema=[
+                {
+                    'AttributeName': 'email_hash',
+                    'KeyType': 'HASH'
+                }
+            ],
+            AttributeDefinitions=[
+                {
+                    'AttributeName': 'email_hash',
+                    'AttributeType': 'S'
+                }
+            ],
+            BillingMode='PAY_PER_REQUEST',
+            TimeToLiveSpecification={
+                'AttributeName': 'ttl',
+                'Enabled': True
+            }
+        )
+        
+        table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
+        self.rate_table = table
+    
+    def validate_email_sender(self, from_email: str) -> Dict[str, any]:
+        """Basic email validation - only block obvious abuse."""
+        result = {'valid': True, 'reason': ''}
+        
+        if not from_email:
+            result['valid'] = False
+            result['reason'] = 'No sender email'
+            return result
+        
+        # Check for blocked patterns
+        email_lower = from_email.lower()
+        for pattern in self.BLOCKED_EMAIL_PATTERNS:
+            if pattern in email_lower:
+                result['valid'] = False
+                result['reason'] = 'Blocked email provider'
+                return result
+        
+        # Basic format check
+        if '@' not in from_email or '.' not in from_email.split('@')[-1]:
+            result['valid'] = False
+            result['reason'] = 'Invalid email format'
+            return result
+        
+        return result
+    
+    def check_rate_limit(self, from_email: str) -> Dict[str, any]:
+        """Enhanced rate limiting with burst protection."""
+        email_hash = hashlib.sha256(from_email.lower().encode()).hexdigest()
+        current_time = int(time.time())
+        
+        result = {'allowed': True, 'reason': '', 'retry_after': 0}
+        
+        try:
+            response = self.rate_table.get_item(
+                Key={'email_hash': email_hash}
+            )
+            
+            if 'Item' in response:
+                item = response['Item']
+                
+                # Check hourly limit
+                hour_start = current_time - (current_time % 3600)
+                hourly_count = item.get('hourly_count', 0) if item.get('hour_start') == hour_start else 0
+                
+                if hourly_count >= self.RATE_LIMIT_PER_HOUR:
+                    result['allowed'] = False
+                    result['reason'] = f'Hourly limit exceeded ({self.RATE_LIMIT_PER_HOUR}/hour)'
+                    result['retry_after'] = 3600 - (current_time % 3600)
+                    return result
+                
+                # Check daily limit
+                day_start = current_time - (current_time % 86400)
+                daily_count = item.get('daily_count', 0) if item.get('day_start') == day_start else 0
+                
+                if daily_count >= self.RATE_LIMIT_PER_DAY:
+                    result['allowed'] = False
+                    result['reason'] = f'Daily limit exceeded ({self.RATE_LIMIT_PER_DAY}/day)'
+                    result['retry_after'] = 86400 - (current_time % 86400)
+                    return result
+                
+                # Check burst limit (3 in 5 minutes)
+                recent_requests = item.get('recent_requests', [])
+                recent_requests = [ts for ts in recent_requests if current_time - ts < 300]  # 5 minutes
+                
+                if len(recent_requests) >= self.BURST_LIMIT:
+                    result['allowed'] = False
+                    result['reason'] = f'Burst limit exceeded ({self.BURST_LIMIT} in 5 minutes)'
+                    result['retry_after'] = 300 - (current_time - min(recent_requests))
+                    return result
+                
+                # Update counters
+                recent_requests.append(current_time)
+                self.rate_table.update_item(
+                    Key={'email_hash': email_hash},
+                    UpdateExpression='''SET 
+                        hourly_count = if_not_exists(hourly_count, :zero) + :inc,
+                        daily_count = if_not_exists(daily_count, :zero) + :inc,
+                        recent_requests = :recent,
+                        hour_start = :hour_start,
+                        day_start = :day_start,
+                        ttl = :ttl''',
+                    ExpressionAttributeValues={
+                        ':inc': 1,
+                        ':zero': 0,
+                        ':recent': recent_requests[-self.BURST_LIMIT:],  # Keep only recent N
+                        ':hour_start': hour_start,
+                        ':day_start': day_start,
+                        ':ttl': current_time + 86400  # 24 hour TTL
+                    }
+                )
+            else:
+                # First request
+                self.rate_table.put_item(
+                    Item={
+                        'email_hash': email_hash,
+                        'hourly_count': 1,
+                        'daily_count': 1,
+                        'recent_requests': [current_time],
+                        'hour_start': current_time - (current_time % 3600),
+                        'day_start': current_time - (current_time % 86400),
+                        'ttl': current_time + 86400
+                    }
+                )
+            
+            return result
+            
+        except Exception as e:
+            print(f"Rate limit check failed: {e}")
+            # Fail open - allow request if rate limiting fails
+            result['allowed'] = True
+            result['reason'] = 'Rate limit check unavailable'
+            return result
+    
+    def validate_image_content(self, image_data: bytes) -> Dict[str, any]:
+        """Validate image is legitimate (not malware, reasonable size)."""
+        result = {'valid': True, 'errors': []}
+        
+        try:
+            # Verify it's a valid image
+            img = Image.open(io.BytesIO(image_data))
+            
+            # Size validation
+            if img.width < 200 or img.height < 200:
+                result['valid'] = False
+                result['errors'].append('Image too small (likely not a nanodrop screen)')
+            
+            if img.width > 5000 or img.height > 5000:
+                result['valid'] = False
+                result['errors'].append('Image too large')
+            
+            # Check aspect ratio (nanodrop screens are typically ~4:3 or 16:9)
+            aspect_ratio = img.width / img.height
+            if aspect_ratio < 0.5 or aspect_ratio > 3.0:
+                result['valid'] = False
+                result['errors'].append('Unusual aspect ratio (likely not a nanodrop screen)')
+            
+        except Exception as e:
+            result['valid'] = False
+            result['errors'].append('Invalid or corrupted image file')
+        
+        return result
+    
+    def validate_attachments(self, attachments: List[Dict]) -> Dict[str, any]:
+        """Enhanced attachment validation."""
+        result = {
+            'valid': True,
+            'errors': []
+        }
+        
+        if len(attachments) > self.MAX_ATTACHMENTS_PER_EMAIL:
+            result['valid'] = False
+            result['errors'].append(f"Too many attachments. Max {self.MAX_ATTACHMENTS_PER_EMAIL} allowed.")
+        
+        total_size = 0
+        for i, attachment in enumerate(attachments):
+            # Check file type
+            content_type = attachment.get('content_type', '')
+            if content_type not in self.ALLOWED_MIME_TYPES:
+                result['valid'] = False
+                result['errors'].append(f"Attachment {i+1}: Unsupported file type {content_type}")
+            
+            # Check size
+            image_data = attachment.get('data', b'')
+            size_mb = len(image_data) / (1024 * 1024)
+            if size_mb > self.MAX_ATTACHMENT_SIZE_MB:
+                result['valid'] = False
+                result['errors'].append(f"Attachment {i+1}: Too large ({size_mb:.1f}MB). Max {self.MAX_ATTACHMENT_SIZE_MB}MB allowed.")
+            
+            # Validate image content
+            image_validation = self.validate_image_content(image_data)
+            if not image_validation['valid']:
+                result['valid'] = False
+                result['errors'].extend([f"Attachment {i+1}: {error}" for error in image_validation['errors']])
+            
+            total_size += size_mb
+        
+        if total_size > self.MAX_EMAIL_SIZE_MB:
+            result['valid'] = False
+            result['errors'].append(f"Total email size too large ({total_size:.1f}MB). Max {self.MAX_EMAIL_SIZE_MB}MB allowed.")
+        
+        return result
+    
+    def check_daily_cost_limit(self) -> Dict[str, any]:
+        """Check if daily OpenAI cost limit would be exceeded."""
+        # This would need to be implemented with actual cost tracking
+        # For now, return always allowed
+        return {'allowed': True, 'estimated_cost': 0.0}
+    
+    def sanitize_error_message(self, error: str) -> str:
+        """Sanitize error messages to prevent information leakage."""
+        sanitized = str(error)
+        
+        # Remove file paths
+        import re
+        sanitized = re.sub(r'/[^\s]*', '[REDACTED_PATH]', sanitized)
+        
+        # Remove potential API keys or tokens
+        sanitized = re.sub(r'sk-[a-zA-Z0-9]{48}', '[REDACTED_API_KEY]', sanitized)
+        sanitized = re.sub(r'AKIA[A-Z0-9]{16}', '[REDACTED_AWS_KEY]', sanitized)
+        
+        # Generic error for unexpected issues
+        if 'internal' in sanitized.lower() or 'server' in sanitized.lower():
+            return "Processing temporarily unavailable. Please try again later."
+        
+        return sanitized[:200]  # Limit error message length
+    
+    def log_security_event(self, event_type: str, from_email: str, details: str):
+        """Log security events for monitoring."""
+        try:
+            self.cloudwatch.put_metric_data(
+                Namespace='NanodropProcessor/Security',
+                MetricData=[
+                    {
+                        'MetricName': event_type,
+                        'Value': 1,
+                        'Unit': 'Count',
+                        'Dimensions': [
+                            {
+                                'Name': 'EmailDomain',
+                                'Value': from_email.split('@')[-1] if '@' in from_email else 'unknown'
+                            }
+                        ]
+                    }
+                ]
+            )
+        except Exception as e:
+            print(f"Failed to log security event: {e}")
+
+
+def create_security_response(allowed: bool, reason: str = '', retry_after: int = 0) -> Dict:
+    """Create standardized security response."""
+    return {
+        'allowed': allowed,
+        'reason': reason,
+        'retry_after': retry_after,
+        'timestamp': int(time.time())
+    }
