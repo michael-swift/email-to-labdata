@@ -109,6 +109,7 @@ def lambda_handler(event, context):
         # Process each image with GPT-4o
         results_list = []
         processed_images = []
+        error_messages = []
         
         for i, image_data in enumerate(image_attachments, 1):
             try:
@@ -118,12 +119,20 @@ def lambda_handler(event, context):
                 processed_images.append(image_data)
                 
             except Exception as e:
-                print(f"Error processing image {i}: {str(e)}")
+                error_msg = str(e)
+                print(f"Error processing image {i}: {error_msg}")
+                error_messages.append(f"Image {i}: {error_msg}")
                 # Continue with other images
                 continue
         
         if not results_list:
-            send_error_email(from_email, "Could not extract data from any of the images")
+            # Provide specific error message based on what went wrong
+            if any("Not a Nanodrop image" in msg for msg in error_messages):
+                error_detail = "The image(s) you sent don't appear to be from a Nanodrop spectrophotometer. Please ensure you're photographing the Nanodrop screen showing the measurement results table."
+            else:
+                error_detail = "Could not extract data from any of the images. Please ensure the entire Nanodrop screen is clearly visible in the photo."
+            
+            send_error_email(from_email, error_detail)
             return {'statusCode': 200, 'body': 'No data extracted'}
         
         # Merge results using LLM intelligence
@@ -175,24 +184,32 @@ def extract_nanodrop_data(image_bytes):
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     
     prompt = """
-    Analyze this Nanodrop spectrophotometer screen image and extract ALL visible measurement data from the table.
+    Analyze this image carefully.
 
-    IMPORTANT INSTRUCTIONS:
-    1. Identify the assay type (RNA or DNA) from visual cues like:
-       - Text saying "RNA" or "dsDNA" on screen  
-       - A260/A280 ratios around 2.0 suggest RNA, around 1.8 suggest DNA
+    FIRST: Determine if this is a Nanodrop spectrophotometer screen. Look for:
+    - The word "NanoDrop" or "Nanodrop" anywhere on screen
+    - A table with columns like # (sample number), ng/uL, A260/A280, A260/A230
+    - Typical Nanodrop interface elements
+
+    IF THIS IS NOT A NANODROP IMAGE:
+    Return this exact JSON:
+    {
+        "error": "not_nanodrop",
+        "instrument_detected": "describe what instrument/screen you see instead",
+        "commentary": "This appears to be a [instrument type] not a Nanodrop spectrophotometer"
+    }
+
+    IF THIS IS A NANODROP IMAGE:
+    Extract ALL visible measurement data from the table following these instructions:
+    1. Identify the assay type (RNA or DNA) from visual cues
     2. Find the measurement table with columns: # (sample number), ng/uL (concentration), A260/A280, A260/A230
-    3. Extract ALL visible rows in the table, including:
-       - Regular white/light rows
-       - Highlighted/selected blue rows
-       - ANY row with data, even if values are negative or unusual
-    4. Be EXTREMELY precise with decimal values - if you see "19.0", return exactly 19.0, not 19
-    5. Include negative values if present (e.g., -2.1, -2.55)
-
-    Return data in this EXACT JSON format:
+    3. Extract ALL visible rows in the table, including negative or unusual values
+    4. Be EXTREMELY precise with decimal values
+    
+    Return data in this format:
     {
         "assay_type": "RNA",
-        "commentary": "Detected 4 good quality samples. Sample 5 shows negative values indicating measurement error.",
+        "commentary": "Detected X samples. Brief quality assessment.",
         "samples": [
             {
                 "sample_number": 1,
@@ -202,10 +219,6 @@ def extract_nanodrop_data(image_bytes):
             }
         ]
     }
-
-    CRITICAL: 
-    - Extract EVERY row you can see in the table, including negative/problematic values
-    - Provide brief commentary on data quality, unusual readings, or recommendations
     """
     
     try:
@@ -245,7 +258,19 @@ def extract_nanodrop_data(image_bytes):
     else:
         json_str = content
     
-    return json.loads(json_str.strip())
+    try:
+        result = json.loads(json_str.strip())
+        
+        # Check if it's a non-nanodrop error response
+        if "error" in result and result["error"] == "not_nanodrop":
+            instrument = result.get("instrument_detected", "unknown instrument")
+            raise Exception(f"Not a Nanodrop image. Detected: {instrument}")
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse JSON response: {content[:500]}")
+        raise Exception(f"Invalid response format from AI model")
 
 
 def merge_nanodrop_results(results_list):
