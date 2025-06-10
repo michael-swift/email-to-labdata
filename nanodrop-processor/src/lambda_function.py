@@ -17,7 +17,9 @@ from io import BytesIO
 import csv
 import openai
 from datetime import datetime
+import time
 from security_config import SecurityConfig
+from structured_logger import logger
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -41,12 +43,17 @@ def get_openai_client():
 
 def lambda_handler(event, context):
     """Main Lambda handler - processes emails from S3."""
-    print(f"Processing event: {json.dumps(event)}")
+    # Set up logging context
+    request_id = context.request_id if context else "local-test"
+    logger.set_request_context(request_id, event)
+    logger.info("Lambda invoked")
     
     try:
         # Get S3 object info from event
         bucket = event['Records'][0]['s3']['bucket']['name']
         key = event['Records'][0]['s3']['object']['key']
+        
+        logger.info("Processing S3 event", bucket=bucket, key=key)
         
         # Download email from S3
         email_obj = s3.get_object(Bucket=bucket, Key=key)
@@ -57,7 +64,9 @@ def lambda_handler(event, context):
         from_email = msg['From']
         subject = msg['Subject']
         
-        print(f"Processing email from: {from_email}, subject: {subject}")
+        # Set user context for logging
+        logger.set_user_context(from_email, subject)
+        logger.info("Email parsed successfully")
         
         # Security validation
         try:
@@ -76,7 +85,7 @@ def lambda_handler(event, context):
                 return {'statusCode': 200, 'body': 'Rate limited'}
         
         except Exception as e:
-            print(f"Security validation error: {str(e)}")
+            logger.error("Security validation failed", exception=e)
             # Continue processing if security check fails (fail open for availability)
         
         # Extract all image attachments
@@ -101,10 +110,10 @@ def lambda_handler(event, context):
                 return {'statusCode': 200, 'body': 'Invalid attachments'}
         
         except Exception as e:
-            print(f"Attachment validation error: {str(e)}")
+            logger.error("Attachment validation failed", exception=e)
             # Continue processing if attachment validation fails
         
-        print(f"Found {len(image_attachments)} image(s) to process")
+        logger.info("Images found", image_count=len(image_attachments))
         
         # Process each image with GPT-4o
         results_list = []
@@ -113,15 +122,32 @@ def lambda_handler(event, context):
         
         for i, image_data in enumerate(image_attachments, 1):
             try:
-                print(f"Processing image {i}/{len(image_attachments)}")
+                logger.info("Processing image", image_number=i, total_images=len(image_attachments))
                 nanodrop_data = extract_nanodrop_data(image_data)
                 results_list.append(nanodrop_data)
                 processed_images.append(image_data)
                 
+                # Log successful image processing
+                samples_in_image = len(nanodrop_data.get('samples', []))
+                logger.image_processed(
+                    image_number=i,
+                    total_images=len(image_attachments),
+                    success=True,
+                    samples_extracted=samples_in_image
+                )
+                
             except Exception as e:
                 error_msg = str(e)
-                print(f"Error processing image {i}: {error_msg}")
+                logger.error(f"Error processing image {i}", error_message=error_msg)
                 error_messages.append(f"Image {i}: {error_msg}")
+                
+                # Log failed image processing
+                logger.image_processed(
+                    image_number=i,
+                    total_images=len(image_attachments),
+                    success=False,
+                    error_message=error_msg
+                )
                 # Continue with other images
                 continue
         
@@ -129,8 +155,17 @@ def lambda_handler(event, context):
             # Provide specific error message based on what went wrong
             if any("Not a Nanodrop image" in msg for msg in error_messages):
                 error_detail = "The image(s) you sent don't appear to be from a Nanodrop spectrophotometer. Please ensure you're photographing the Nanodrop screen showing the measurement results table."
+                error_type = "wrong_instrument"
             else:
                 error_detail = "Could not extract data from any of the images. Please ensure the entire Nanodrop screen is clearly visible in the photo."
+                error_type = "extraction_failed"
+            
+            logger.request_completed(
+                success=False,
+                images_processed=len(image_attachments),
+                samples_extracted=0,
+                error_type=error_type
+            )
             
             send_error_email(from_email, error_detail)
             return {'statusCode': 200, 'body': 'No data extracted'}
@@ -138,11 +173,25 @@ def lambda_handler(event, context):
         # Merge results using LLM intelligence
         combined_data = merge_nanodrop_results(results_list)
         
+        # Count total samples extracted
+        total_samples = len(combined_data.get('samples', []))
+        logger.info("Data extraction complete", 
+                   images_processed=len(processed_images),
+                   samples_extracted=total_samples)
+        
         # Generate CSV
         csv_content = generate_csv(combined_data)
         
         # Send reply with CSV and original photos
         send_success_email(from_email, csv_content, combined_data, processed_images)
+        
+        # Log successful completion
+        logger.request_completed(
+            success=True,
+            images_processed=len(processed_images),
+            samples_extracted=total_samples,
+            csv_generated=True
+        )
         
         return {
             'statusCode': 200,
@@ -150,7 +199,7 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"Error processing email: {str(e)}")
+        logger.error("Email processing failed", exception=e)
         if 'from_email' in locals():
             send_error_email(from_email, f"Processing error: {str(e)}")
         return {
@@ -223,6 +272,8 @@ def extract_nanodrop_data(image_bytes):
     
     try:
         client = get_openai_client()
+        start_time = time.time()
+        
         response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -244,6 +295,18 @@ def extract_nanodrop_data(image_bytes):
         max_tokens=1000,
         timeout=30
     )
+        
+        # Log OpenAI request details
+        duration_ms = int((time.time() - start_time) * 1000)
+        usage = response.usage
+        logger.openai_request(
+            model="gpt-4o",
+            prompt_tokens=usage.prompt_tokens if usage else None,
+            completion_tokens=usage.completion_tokens if usage else None,
+            total_tokens=usage.total_tokens if usage else None,
+            duration_ms=duration_ms
+        )
+        
     except Exception as e:
         raise Exception(f"OpenAI API error: {str(e)}")
     
@@ -269,7 +332,7 @@ def extract_nanodrop_data(image_bytes):
         return result
         
     except json.JSONDecodeError as e:
-        print(f"Failed to parse JSON response: {content[:500]}")
+        logger.error("Failed to parse JSON response", response_preview=content[:500])
         raise Exception(f"Invalid response format from AI model")
 
 
@@ -323,6 +386,8 @@ def merge_nanodrop_results(results_list):
     
     try:
         client = get_openai_client()
+        start_time = time.time()
+        
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -334,6 +399,17 @@ def merge_nanodrop_results(results_list):
             temperature=0.1,
             max_tokens=1500,
             timeout=30
+        )
+        
+        # Log merge request
+        duration_ms = int((time.time() - start_time) * 1000)
+        usage = response.usage
+        logger.openai_request(
+            model="gpt-4o",
+            prompt_tokens=usage.prompt_tokens if usage else None,
+            completion_tokens=usage.completion_tokens if usage else None,
+            total_tokens=usage.total_tokens if usage else None,
+            duration_ms=duration_ms
         )
         
         content = response.choices[0].message.content
@@ -349,7 +425,7 @@ def merge_nanodrop_results(results_list):
         return json.loads(json_str.strip())
         
     except Exception as e:
-        print(f"LLM merge failed, using fallback: {str(e)}")
+        logger.warning("LLM merge failed, using fallback", error=str(e))
         return fallback_merge(results_list)
 
 
