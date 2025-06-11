@@ -572,7 +572,7 @@ Nanodrop Processing Service
     encoders.encode_base64(csv_attachment)
     csv_attachment.add_header(
         'Content-Disposition',
-        f'attachment; filename=nanodrop_{assay_type.replace(" ", "_").replace("(", "").replace(")", "")}_{sample_count}_samples.csv'
+        f'attachment; filename=nanodrop_{assay_type.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")}_{sample_count}_samples.csv'
     )
     msg.attach(csv_attachment)
     
