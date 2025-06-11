@@ -256,9 +256,9 @@ class SecurityConfig:
                 result['valid'] = False
                 result['errors'].append('Image too small (minimum 200x200 pixels). Please ensure the entire Nanodrop screen is visible.')
             
-            if img.width > 5000 or img.height > 5000:
+            if img.width > 8000 or img.height > 8000:
                 result['valid'] = False
-                result['errors'].append('Image dimensions too large (maximum 5000x5000 pixels)')
+                result['errors'].append('Image dimensions too large (maximum 8000x8000 pixels)')
             
             # Check aspect ratio (nanodrop screens are typically ~4:3 or 16:9)
             aspect_ratio = img.width / img.height
