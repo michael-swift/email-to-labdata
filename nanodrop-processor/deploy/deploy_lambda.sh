@@ -209,7 +209,7 @@ deploy_function() {
             --code ImageUri=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:latest \
             --role arn:aws:iam::$AWS_ACCOUNT_ID:role/nanodrop-lambda-role \
             --region $AWS_REGION \
-            --timeout 60 \
+            --timeout 120 \
             --memory-size 512 \
             --architectures arm64 \
             --environment Variables={OPENAI_API_KEY=$OPENAI_API_KEY} || {
@@ -223,7 +223,7 @@ deploy_function() {
         aws lambda update-function-configuration \
             --function-name $LAMBDA_FUNCTION_NAME \
             --region $AWS_REGION \
-            --timeout 60 \
+            --timeout 120 \
             --memory-size 512 \
             --environment Variables={OPENAI_API_KEY=$OPENAI_API_KEY} || {
                 log_warning "Failed to update configuration"
