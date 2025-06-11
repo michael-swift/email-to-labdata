@@ -19,6 +19,7 @@ import openai
 from datetime import datetime
 import time
 import re
+from PIL import Image
 from security_config import SecurityConfig
 from structured_logger import logger
 
@@ -494,6 +495,37 @@ def generate_csv(data):
     return output.getvalue()
 
 
+def compress_image_for_email(image_data, max_size_kb=500):
+    """Compress image to reduce email attachment size."""
+    try:
+        # Open image
+        img = Image.open(BytesIO(image_data))
+        
+        # Convert to RGB if necessary
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+        
+        # Start with moderate compression
+        quality = 85
+        compressed_data = None
+        
+        while quality >= 30:  # Don't go below 30% quality
+            output = BytesIO()
+            img.save(output, format='JPEG', quality=quality, optimize=True)
+            compressed_data = output.getvalue()
+            
+            # Check size
+            if len(compressed_data) <= max_size_kb * 1024:
+                break
+                
+            quality -= 15  # Reduce quality more aggressively
+        
+        return compressed_data if compressed_data else image_data
+    except Exception:
+        # If compression fails, return original
+        return image_data
+
+
 def assess_quality(ratio_260_280, ratio_260_230, concentration):
     """Simple quality assessment based on ratios and concentration."""
     issues = []
@@ -576,11 +608,14 @@ Nanodrop Processing Service
     )
     msg.attach(csv_attachment)
     
-    # Attach original images
+    # Attach compressed images
     if isinstance(original_images, list):
         for i, image_data in enumerate(original_images, 1):
+            # Compress image to reduce email size
+            compressed_image = compress_image_for_email(image_data, max_size_kb=500)
+            
             img_attachment = MIMEBase('image', 'jpeg')
-            img_attachment.set_payload(image_data)
+            img_attachment.set_payload(compressed_image)
             encoders.encode_base64(img_attachment)
             img_attachment.add_header(
                 'Content-Disposition',
@@ -589,8 +624,10 @@ Nanodrop Processing Service
             msg.attach(img_attachment)
     else:
         # Single image (backward compatibility)
+        compressed_image = compress_image_for_email(original_images, max_size_kb=500)
+        
         img_attachment = MIMEBase('image', 'jpeg')
-        img_attachment.set_payload(original_images)
+        img_attachment.set_payload(compressed_image)
         encoders.encode_base64(img_attachment)
         img_attachment.add_header(
             'Content-Disposition',
