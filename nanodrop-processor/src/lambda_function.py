@@ -18,6 +18,7 @@ import csv
 import openai
 from datetime import datetime
 import time
+import re
 from security_config import SecurityConfig
 from structured_logger import logger
 
@@ -44,7 +45,7 @@ def get_openai_client():
 def lambda_handler(event, context):
     """Main Lambda handler - processes emails from S3."""
     # Set up logging context
-    request_id = context.request_id if context else "local-test"
+    request_id = context.aws_request_id if context else "local-test"
     logger.set_request_context(request_id, event)
     logger.info("Lambda invoked")
     
@@ -64,6 +65,14 @@ def lambda_handler(event, context):
         from_email = msg['From']
         subject = msg['Subject']
         
+        # Extract just the email address from the From field
+        # Handle formats like "Name <email@domain.com>" or just "email@domain.com"
+        email_match = re.search(r'<(.+?)>', from_email)
+        if email_match:
+            sender_email = email_match.group(1)
+        else:
+            sender_email = from_email.strip()
+        
         # Set user context for logging
         logger.set_user_context(from_email, subject)
         logger.info("Email parsed successfully")
@@ -71,16 +80,16 @@ def lambda_handler(event, context):
         # Security validation
         try:
             # Validate sender email
-            email_validation = security.validate_email_sender(from_email)
+            email_validation = security.validate_email_sender(sender_email)
             if not email_validation['valid']:
-                security.log_security_event('EmailBlocked', from_email, email_validation['reason'])
+                security.log_security_event('EmailBlocked', sender_email, email_validation['reason'])
                 send_error_email(from_email, f"Email blocked: {email_validation['reason']}")
                 return {'statusCode': 200, 'body': 'Email blocked'}
             
             # Check rate limits
-            rate_check = security.check_rate_limit(from_email)
+            rate_check = security.check_rate_limit(sender_email)
             if not rate_check['allowed']:
-                security.log_security_event('RateLimitExceeded', from_email, rate_check['reason'])
+                security.log_security_event('RateLimitExceeded', sender_email, rate_check['reason'])
                 send_error_email(from_email, f"Rate limit exceeded: {rate_check['reason']}. Please try again in {rate_check['retry_after']} seconds.")
                 return {'statusCode': 200, 'body': 'Rate limited'}
         
