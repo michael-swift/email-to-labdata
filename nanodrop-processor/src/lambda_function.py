@@ -22,6 +22,7 @@ import re
 from PIL import Image
 from security_config import SecurityConfig
 from structured_logger import logger
+from dynamodb_schema import DynamoDBManager
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -30,8 +31,9 @@ ses = boto3.client('ses', region_name='us-west-2')
 # Initialize OpenAI client (will be created when needed or mocked for testing)
 openai_client = None
 
-# Initialize security configuration
+# Initialize security configuration and DynamoDB
 security = SecurityConfig()
+db_manager = DynamoDBManager()
 
 def get_openai_client():
     """Get or create OpenAI client."""
@@ -56,6 +58,9 @@ def lambda_handler(event, context):
         key = event['Records'][0]['s3']['object']['key']
         
         logger.info("Processing S3 event", bucket=bucket, key=key)
+        
+        # Start timing for analytics
+        processing_start_time = time.time()
         
         # Download email from S3
         email_obj = s3.get_object(Bucket=bucket, Key=key)
@@ -170,6 +175,27 @@ def lambda_handler(event, context):
                 error_detail = "Unable to extract data from the image(s). Please ensure the entire instrument screen is clearly visible and well-lit in the photo."
                 error_type = "extraction_failed"
             
+            # Calculate processing time for failed requests too
+            processing_time_ms = int((time.time() - processing_start_time) * 1000)
+            
+            # Log failed request to DynamoDB
+            try:
+                db_manager.log_request(
+                    user_email=sender_email,
+                    request_id=request_id,
+                    images_processed=len(image_attachments),
+                    samples_extracted=0,
+                    processing_time_ms=processing_time_ms,
+                    success=False,
+                    error_message=error_detail,
+                    additional_data={
+                        'error_type': error_type,
+                        's3_key': key
+                    }
+                )
+            except Exception as e:
+                logger.error("Failed to log failed request to DynamoDB", error=str(e))
+            
             logger.request_completed(
                 success=False,
                 images_processed=len(image_attachments),
@@ -195,6 +221,34 @@ def lambda_handler(event, context):
         # Send reply with CSV and original photos
         send_success_email(from_email, csv_content, combined_data, processed_images)
         
+        # Calculate processing time
+        processing_time_ms = int((time.time() - processing_start_time) * 1000)
+        
+        # Extract instrument types for analytics
+        instrument_types = []
+        for result in results_list:
+            if 'instrument' in result and result['instrument'] not in instrument_types:
+                instrument_types.append(result['instrument'])
+        
+        # Log to DynamoDB for analytics
+        try:
+            db_manager.log_request(
+                user_email=sender_email,
+                request_id=request_id,
+                images_processed=len(processed_images),
+                samples_extracted=total_samples,
+                processing_time_ms=processing_time_ms,
+                success=True,
+                instrument_types=instrument_types,
+                additional_data={
+                    'assay_type': combined_data.get('assay_type', 'Unknown'),
+                    's3_key': key
+                }
+            )
+        except Exception as e:
+            logger.error("Failed to log to DynamoDB", error=str(e))
+            # Don't fail the whole request if DynamoDB logging fails
+        
         # Log successful completion
         logger.request_completed(
             success=True,
@@ -210,6 +264,27 @@ def lambda_handler(event, context):
         
     except Exception as e:
         logger.error("Email processing failed", exception=e)
+        
+        # Log catastrophic failure to DynamoDB if we have sender info
+        if 'sender_email' in locals() and 'processing_start_time' in locals():
+            try:
+                processing_time_ms = int((time.time() - processing_start_time) * 1000)
+                db_manager.log_request(
+                    user_email=sender_email,
+                    request_id=request_id,
+                    images_processed=0,
+                    samples_extracted=0,
+                    processing_time_ms=processing_time_ms,
+                    success=False,
+                    error_message=f"Catastrophic failure: {str(e)}",
+                    additional_data={
+                        'error_type': 'system_error',
+                        's3_key': locals().get('key', 'unknown')
+                    }
+                )
+            except Exception as db_error:
+                logger.error("Failed to log catastrophic failure to DynamoDB", error=str(db_error))
+        
         if 'from_email' in locals():
             send_error_email(from_email, f"Processing error: {str(e)}")
         return {
