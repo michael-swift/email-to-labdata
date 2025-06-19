@@ -162,12 +162,12 @@ def lambda_handler(event, context):
                 continue
         
         if not results_list:
-            # Provide specific error message based on what went wrong
-            if any("Not a Nanodrop image" in msg for msg in error_messages):
-                error_detail = "The image(s) you sent don't appear to be from a Nanodrop spectrophotometer. Please ensure you're photographing the Nanodrop screen showing the measurement results table."
-                error_type = "wrong_instrument"
+            # Provide helpful error message for extraction failure
+            if any("No tabular data found" in msg for msg in error_messages):
+                error_detail = "Could not find any tabular data in your image(s). Please ensure you're photographing a lab instrument screen showing measurement results in a table format."
+                error_type = "no_data_found"
             else:
-                error_detail = "Could not extract data from any of the images. Please ensure the entire Nanodrop screen is clearly visible in the photo."
+                error_detail = "Unable to extract data from the image(s). Please ensure the entire instrument screen is clearly visible and well-lit in the photo."
                 error_type = "extraction_failed"
             
             logger.request_completed(
@@ -180,7 +180,7 @@ def lambda_handler(event, context):
             send_error_email(from_email, error_detail)
             return {'statusCode': 200, 'body': 'No data extracted'}
         
-        # Merge results using LLM intelligence
+        # Merge results using LLM intelligence (with fixed fallback)
         combined_data = merge_nanodrop_results(results_list)
         
         # Count total samples extracted
@@ -238,46 +238,33 @@ def extract_images_from_email(msg):
 
 
 def extract_nanodrop_data(image_bytes):
-    """Extract data from Nanodrop image using GPT-4o."""
+    """Extract data from lab instrument image using GPT-4o - simplified universal approach."""
     # Encode image to base64
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     
+    # Single universal prompt that handles everything
     prompt = """
-    Analyze this image carefully.
+    Extract ALL data from this lab instrument image.
 
-    FIRST: Determine if this is a Nanodrop spectrophotometer screen. Look for:
-    - The word "NanoDrop" or "Nanodrop" anywhere on screen
-    - A table with columns like # (sample number), ng/uL, A260/A280, A260/A230
-    - Typical Nanodrop interface elements
-
-    IF THIS IS NOT A NANODROP IMAGE:
-    Return this exact JSON:
-    {
-        "error": "not_nanodrop",
-        "instrument_detected": "describe what instrument/screen you see instead",
-        "commentary": "This appears to be a [instrument type] not a Nanodrop spectrophotometer"
-    }
-
-    IF THIS IS A NANODROP IMAGE:
-    Extract ALL visible measurement data from the table following these instructions:
-    1. Identify the assay type (RNA or DNA) from visual cues
-    2. Find the measurement table with columns: # (sample number), ng/uL (concentration), A260/A280, A260/A230
-    3. Extract ALL visible rows in the table, including negative or unusual values
-    4. Be EXTREMELY precise with decimal values
+    For standard tables (Nanodrop, UV-Vis, etc.):
+    - Extract exact column headers and all row data
     
-    Return data in this format:
+    For 96-well plates:
+    - Extract well positions (A1, B2, etc.) and values
+    - Also provide in long form: [{"well": "A1", "value": X}, ...]
+    
+    Return JSON:
     {
-        "assay_type": "RNA",
-        "commentary": "Detected X samples. Brief quality assessment.",
-        "samples": [
-            {
-                "sample_number": 1,
-                "concentration": 19.0,
-                "a260_a280": 1.83,
-                "a260_a230": 2.08
-            }
-        ]
+        "instrument": "detected instrument type",
+        "confidence": "high|medium|low",
+        "is_plate_format": true/false,
+        "columns": ["headers"] (if table format),
+        "samples": [{"col1": "val1", ...}] or [{"well": "A1", "value": X}],
+        "plate_data": {"A1": value, ...} (if plate format),
+        "notes": "any relevant observations"
     }
+
+    Extract all visible data precisely. Use scientific notation if shown (e.g., 1.23E+04).
     """
     
     try:
@@ -285,26 +272,25 @@ def extract_nanodrop_data(image_bytes):
         start_time = time.time()
         
         response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "high"
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                                "detail": "high"
+                            }
                         }
-                    }
-                ]
-            }
-        ],
-        temperature=0.1,
-        max_tokens=1000,
-        timeout=30
-    )
+                    ]
+                }
+            ],
+            temperature=0.1
+            # Let OpenAI handle tokens and timeout defaults
+        )
         
         # Log OpenAI request details
         duration_ms = int((time.time() - start_time) * 1000)
@@ -334,10 +320,15 @@ def extract_nanodrop_data(image_bytes):
     try:
         result = json.loads(json_str.strip())
         
-        # Check if it's a non-nanodrop error response
-        if "error" in result and result["error"] == "not_nanodrop":
-            instrument = result.get("instrument_detected", "unknown instrument")
-            raise Exception(f"Not a Nanodrop image. Detected: {instrument}")
+        # Check if extraction completely failed (no data found)
+        if "error" in result and result.get("error") == "no_data":
+            raise Exception(f"No tabular data found in image")
+        
+        # Log what was detected for monitoring
+        if "instrument" in result:
+            instrument_type = result.get("instrument", "unknown")
+            confidence = result.get("confidence", "unknown")
+            logger.info(f"Detected instrument: {instrument_type} (confidence: {confidence})")
         
         return result
         
@@ -365,24 +356,22 @@ def merge_nanodrop_results(results_list):
         })
     
     merge_prompt = f"""
-    You have nanodrop results from {len(results_list)} different images. Please merge them intelligently into a single result.
+    CRITICAL: You MUST respond with ONLY valid JSON. No explanations, no markdown, no conversational text.
+
+    Task: Merge nanodrop results from {len(results_list)} images into a single result.
 
     Input data: {json.dumps(merge_input, indent=2)}
 
-    INSTRUCTIONS:
-    1. Combine all samples into one list, sorted by sample_number
-    2. If the same sample_number appears multiple times, choose the most reliable reading (avoid negative values, prefer readings with good ratios)
-    3. Determine the overall assay_type (if mixed, note this)
-    4. Provide comprehensive commentary explaining:
-       - How many images processed
-       - Any conflicts resolved
-       - Overall quality assessment
-       - Recommendations for problematic samples
+    Rules:
+    1. Combine all samples, sorted by sample_number
+    2. For duplicate sample_numbers: choose most reliable reading (avoid negative values, prefer good ratios)
+    3. Determine overall assay_type
+    4. Include brief commentary about conflicts and quality
 
-    Return in this EXACT JSON format:
+    RESPOND WITH ONLY THIS JSON STRUCTURE (no other text):
     {{
-        "assay_type": "RNA",
-        "commentary": "Processed 2 images with samples 1-5. Sample 3 appeared in both images - selected reading with better ratios. Overall good quality except sample 5 which shows measurement error.",
+        "assay_type": "DNA",
+        "commentary": "Processed {len(results_list)} images with N samples. Brief quality assessment.",
         "samples": [
             {{
                 "sample_number": 1,
@@ -391,13 +380,45 @@ def merge_nanodrop_results(results_list):
                 "a260_a230": 2.07
             }}
         ]
-    }}
-    """
+    }}"""
     
     try:
         client = get_openai_client()
         start_time = time.time()
         
+        # Define function schema for structured output
+        merge_function = {
+            "name": "merge_nanodrop_results",
+            "description": "Merge nanodrop sample results from multiple images",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "assay_type": {
+                        "type": "string",
+                        "enum": ["DNA", "RNA", "Mixed", "Unknown"]
+                    },
+                    "commentary": {
+                        "type": "string",
+                        "description": "Brief explanation of merge process and quality assessment"
+                    },
+                    "samples": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "sample_number": {"type": "integer"},
+                                "concentration": {"type": "number"},
+                                "a260_a280": {"type": "number"},
+                                "a260_a230": {"type": "number"}
+                            },
+                            "required": ["sample_number", "concentration", "a260_a280", "a260_a230"]
+                        }
+                    }
+                },
+                "required": ["assay_type", "commentary", "samples"]
+            }
+        }
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -406,8 +427,9 @@ def merge_nanodrop_results(results_list):
                     "content": merge_prompt
                 }
             ],
+            functions=[merge_function],
+            function_call={"name": "merge_nanodrop_results"},
             temperature=0.1,
-            max_tokens=1500,
             timeout=30
         )
         
@@ -422,21 +444,74 @@ def merge_nanodrop_results(results_list):
             duration_ms=duration_ms
         )
         
-        content = response.choices[0].message.content
+        # Handle both function calling and regular content responses
+        message = response.choices[0].message
         
-        # Extract JSON from response
-        if "```json" in content:
-            json_str = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            json_str = content.split("```")[1].split("```")[0]
+        if message.function_call:
+            # Function calling returns structured data directly
+            function_args = message.function_call.arguments
+            logger.info("LLM merge via function calling", 
+                       function_name=message.function_call.name,
+                       args_length=len(function_args))
+            
+            result = json.loads(function_args)
+            
+            # Validate the result has all required fields and reasonable data
+            if not isinstance(result.get('samples'), list) or len(result.get('samples', [])) == 0:
+                raise ValueError(f"Invalid function call result: missing or empty samples")
+            
+            # Count unique sample numbers
+            sample_numbers = {s.get('sample_number') for s in result.get('samples', [])}
+            if len(sample_numbers) < len(results_list):  # Should have at least as many samples as images
+                logger.warning("Function call result may be incomplete", 
+                             samples_found=len(sample_numbers),
+                             images_processed=len(results_list))
+            
+            return result
         else:
-            json_str = content
-        
-        return json.loads(json_str.strip())
+            # Fallback to content parsing
+            content = message.content
+            
+            # Extract JSON from response - handle multiple JSON blocks by taking the largest
+            if "```json" in content:
+                # Find all JSON blocks and take the largest one (most complete)
+                json_blocks = content.split("```json")[1:]
+                json_candidates = []
+                for block in json_blocks:
+                    candidate = block.split("```")[0].strip()
+                    if candidate:
+                        json_candidates.append(candidate)
+                
+                if json_candidates:
+                    # Choose the largest JSON block (likely the most complete)
+                    json_str = max(json_candidates, key=len)
+                else:
+                    json_str = content
+            elif "```" in content:
+                json_str = content.split("```")[1].split("```")[0]
+            else:
+                json_str = content
+            
+            # Log the extracted JSON for debugging
+            logger.info("LLM merge JSON extraction", 
+                       content_length=len(content),
+                       json_blocks_found=content.count("```"),
+                       extracted_json_preview=json_str[:200] + "..." if len(json_str) > 200 else json_str)
+            
+            return json.loads(json_str.strip())
         
     except Exception as e:
         logger.warning("LLM merge failed, using fallback", error=str(e))
         return fallback_merge(results_list)
+
+def merge_nanodrop_results_old(results_list):
+    """Original merge function - now using fallback only for debugging."""
+    if len(results_list) == 1:
+        return results_list[0]
+    
+    # Force fallback merge for debugging
+    logger.info("Forcing fallback merge for debugging")
+    return fallback_merge(results_list)
 
 
 def fallback_merge(results_list):
@@ -452,13 +527,28 @@ def fallback_merge(results_list):
         if 'commentary' in result:
             all_commentary.append(result['commentary'])
     
-    # Remove duplicates by sample_number (keep first occurrence)
-    seen_samples = set()
-    unique_samples = []
-    for sample in sorted(all_samples, key=lambda x: x['sample_number']):
-        if sample['sample_number'] not in seen_samples:
-            unique_samples.append(sample)
-            seen_samples.add(sample['sample_number'])
+    # Merge samples by sample_number (prefer non-zero concentrations and better ratios)
+    sample_dict = {}
+    for sample in all_samples:
+        sample_num = sample['sample_number']
+        if sample_num not in sample_dict:
+            sample_dict[sample_num] = sample
+        else:
+            # If duplicate, prefer the sample with higher concentration and better ratios
+            existing = sample_dict[sample_num]
+            current = sample
+            
+            # Prefer non-zero/positive concentrations
+            if existing.get('concentration', 0) <= 0 and current.get('concentration', 0) > 0:
+                sample_dict[sample_num] = current
+            elif existing.get('concentration', 0) > 0 and current.get('concentration', 0) <= 0:
+                continue  # Keep existing
+            else:
+                # Both valid or both invalid - prefer higher concentration
+                if current.get('concentration', 0) > existing.get('concentration', 0):
+                    sample_dict[sample_num] = current
+    
+    unique_samples = sorted(sample_dict.values(), key=lambda x: x['sample_number'])
     
     return {
         'assay_type': list(all_assay_types)[0] if len(all_assay_types) == 1 else 'Mixed',
@@ -468,29 +558,117 @@ def fallback_merge(results_list):
 
 
 def generate_csv(data):
-    """Generate CSV content from extracted data."""
+    """Generate CSV content from extracted data - flexible format."""
     from io import StringIO
     output = StringIO()
     writer = csv.writer(output)
     
-    # Header
-    writer.writerow([
-        'Sample Number', 'Concentration (ng/uL)', 
-        'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type'
-    ])
+    # Handle multiple data formats
+    if 'samples' in data and isinstance(data['samples'], list):
+        # New simplified format or legacy format
+        samples = data['samples']
+        assay_type = data.get('assay_type', data.get('instrument', 'Unknown'))
+    elif 'long_form_data' in data:
+        # Complex flexible format
+        samples = data['long_form_data'].get('samples', [])
+        assay_type = data.get('assay_type_guess', 'Unknown')
+    else:
+        # No samples found
+        samples = []
+        assay_type = 'Unknown'
     
-    # Data rows
-    assay_type = data.get('assay_type', 'Unknown')
-    for sample in data['samples']:
-        quality = assess_quality(sample['a260_a280'], sample['a260_a230'], sample['concentration'])
-        writer.writerow([
-            sample['sample_number'],
-            sample['concentration'],
-            sample['a260_a280'],
-            sample['a260_a230'],
-            quality,
-            assay_type
-        ])
+    if not samples:
+        # No samples found - return empty CSV with headers
+        writer.writerow(['Sample', 'Data', 'Note'])
+        writer.writerow(['No data', 'extracted', 'Please check image quality'])
+        return output.getvalue()
+    
+    # Determine CSV structure based on available data
+    first_sample = samples[0]
+    
+    if 'columns' in data:
+        # New simplified format - use detected columns as headers
+        headers = data['columns']
+        # Add quality and assay columns
+        headers.extend(['Quality Assessment', 'Assay Type'])
+    elif 'long_form_data' in data:
+        # Complex format (old flexible format)
+        headers = ['Sample ID']
+        if 'standardized_values' in first_sample:
+            std_vals = first_sample['standardized_values']
+            if 'concentration_ng_ul' in std_vals:
+                headers.append('Concentration (ng/μL)')
+            if 'a260_a280' in std_vals:
+                headers.append('A260/A280')
+            if 'a260_a230' in std_vals:
+                headers.append('A260/A230')
+        headers.extend(['Quality Assessment', 'Assay Type'])
+    else:
+        # Legacy format
+        headers = ['Sample ID', 'Concentration (ng/μL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type']
+    
+    writer.writerow(headers)
+    
+    # Write data rows
+    for sample in samples:
+        row = []
+        
+        if 'columns' in data:
+            # New simplified format - extract values in column order
+            for col in data['columns']:
+                row.append(sample.get(col, ''))
+            
+            # Try to assess quality if we have the right columns
+            quality = 'Check manually'
+            try:
+                if 'A260/A280' in sample and 'A260/A230' in sample:
+                    a260_a280 = float(sample['A260/A280'])
+                    a260_a230 = float(sample['A260/A230'])
+                    concentration = float(sample.get('Concentration', sample.get('ng/uL', 0)))
+                    quality = assess_quality(a260_a280, a260_a230, concentration)
+            except (ValueError, TypeError, KeyError):
+                pass
+            
+        elif 'long_form_data' in data:
+            # Complex format (old flexible format)
+            std_vals = sample.get('standardized_values', {})
+            row.append(std_vals.get('sample_id', sample.get('row_id', 'Unknown')))
+            
+            concentration = std_vals.get('concentration_ng_ul', '')
+            a260_a280 = std_vals.get('a260_a280', '')
+            a260_a230 = std_vals.get('a260_a230', '')
+            
+            if 'Concentration (ng/μL)' in headers:
+                row.append(concentration)
+            if 'A260/A280' in headers:
+                row.append(a260_a280)
+            if 'A260/A230' in headers:
+                row.append(a260_a230)
+            
+            # Quality assessment
+            quality = 'Insufficient data'
+            if concentration and a260_a280 and a260_a230:
+                try:
+                    quality = assess_quality(float(a260_a280), float(a260_a230), float(concentration))
+                except (ValueError, TypeError):
+                    quality = 'Check values'
+        else:
+            # Legacy format
+            row = [
+                sample.get('sample_number', ''),
+                sample.get('concentration', ''),
+                sample.get('a260_a280', ''),
+                sample.get('a260_a230', '')
+            ]
+            
+            try:
+                quality = assess_quality(sample['a260_a280'], sample['a260_a230'], sample['concentration'])
+            except (KeyError, TypeError):
+                quality = 'Check values'
+        
+        row.append(quality)
+        row.append(assay_type)
+        writer.writerow(row)
     
     return output.getvalue()
 
