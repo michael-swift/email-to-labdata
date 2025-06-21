@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Improved Lambda deployment script with better error handling and debugging
+# Enhanced Lambda deployment script with environment support (prod/dev)
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
@@ -8,6 +8,7 @@ set -euo pipefail  # Exit on error, undefined vars, pipe failures
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Helper functions
@@ -22,6 +23,30 @@ log_error() {
 log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
+
+log_env() {
+    ENV_UPPER=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
+    echo -e "${BLUE}[$ENV_UPPER]${NC} $1"
+}
+
+# Usage function
+usage() {
+    echo "Usage: $0 [prod|dev]"
+    echo "  prod - Deploy to production environment"
+    echo "  dev  - Deploy to development environment"
+    exit 1
+}
+
+# Check environment argument
+if [ $# -ne 1 ]; then
+    usage
+fi
+
+ENVIRONMENT=$1
+if [[ ! "$ENVIRONMENT" =~ ^(prod|dev)$ ]]; then
+    log_error "Invalid environment: $ENVIRONMENT"
+    usage
+fi
 
 # Check prerequisites
 check_prerequisites() {
@@ -65,16 +90,38 @@ check_prerequisites() {
     log_info "All prerequisites met ✓"
 }
 
-# Configuration
-AWS_REGION="${AWS_REGION:-us-west-2}"
-LAMBDA_FUNCTION_NAME="nanodrop-processor"
-ECR_REPOSITORY_NAME="nanodrop-processor"
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-S3_BUCKET="nanodrop-emails-seminalcapital"
+# Environment-specific configuration
+configure_environment() {
+    AWS_REGION="${AWS_REGION:-us-west-2}"
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    
+    if [ "$ENVIRONMENT" == "prod" ]; then
+        LAMBDA_FUNCTION_NAME="nanodrop-processor"
+        ECR_REPOSITORY_NAME="nanodrop-processor"
+        S3_BUCKET="nanodrop-emails-seminalcapital"
+        S3_PREFIX="incoming/"
+        TABLE_PREFIX=""
+        EMAIL_DOMAIN="@seminalcapital.net"
+        SES_RULE_NAME="nanodrop-receipt"
+    else
+        LAMBDA_FUNCTION_NAME="nanodrop-processor-dev"
+        ECR_REPOSITORY_NAME="nanodrop-processor-dev"
+        S3_BUCKET="nanodrop-emails-seminalcapital"
+        S3_PREFIX="dev/"
+        TABLE_PREFIX="dev-"
+        EMAIL_DOMAIN="-dev@seminalcapital.net"
+        SES_RULE_NAME="nanodrop-dev-receipt"
+    fi
+    
+    log_env "Configuration loaded"
+    log_info "Lambda Function: $LAMBDA_FUNCTION_NAME"
+    log_info "S3 Path: s3://$S3_BUCKET/$S3_PREFIX"
+    log_info "Email suffix: $EMAIL_DOMAIN"
+}
 
 # Main deployment function
 deploy_lambda() {
-    log_info "Starting Lambda deployment..."
+    log_env "Starting Lambda deployment..."
     log_info "Region: $AWS_REGION"
     log_info "Account: $AWS_ACCOUNT_ID"
     
@@ -124,9 +171,12 @@ deploy_lambda() {
     # Step 8: Configure S3 trigger
     configure_s3_trigger
     
-    log_info "Deployment complete! ✅"
+    # Step 9: Configure SES rule (if needed)
+    configure_ses_rule
+    
+    log_env "Deployment complete! ✅"
     log_info ""
-    log_info "📧 Email nanodrop@seminalcapital.net with a photo to test!"
+    log_info "📧 Email nanodrop$EMAIL_DOMAIN with a photo to test!"
     log_info "🔍 CloudWatch logs: https://console.aws.amazon.com/cloudwatch/home?region=$AWS_REGION#logGroup:group=/aws/lambda/$LAMBDA_FUNCTION_NAME"
 }
 
@@ -135,12 +185,13 @@ create_dynamodb_tables() {
     log_info "Setting up DynamoDB tables..."
     
     # Create requests table
-    if aws dynamodb describe-table --table-name nanodrop-requests --region $AWS_REGION &> /dev/null; then
-        log_warning "nanodrop-requests table already exists"
+    REQUESTS_TABLE="${TABLE_PREFIX}nanodrop-requests"
+    if aws dynamodb describe-table --table-name $REQUESTS_TABLE --region $AWS_REGION &> /dev/null; then
+        log_warning "$REQUESTS_TABLE table already exists"
     else
-        log_info "Creating nanodrop-requests table..."
+        log_info "Creating $REQUESTS_TABLE table..."
         aws dynamodb create-table \
-            --table-name nanodrop-requests \
+            --table-name $REQUESTS_TABLE \
             --attribute-definitions \
                 AttributeName=request_id,AttributeType=S \
                 AttributeName=user_email,AttributeType=S \
@@ -148,22 +199,23 @@ create_dynamodb_tables() {
             --key-schema \
                 AttributeName=request_id,KeyType=HASH \
             --global-secondary-indexes \
-                'IndexName=user-email-index,KeySchema=[{AttributeName=user_email,KeyType=HASH},{AttributeName=timestamp,KeyType=RANGE}],Projection={ProjectionType=ALL},BillingMode=PAY_PER_REQUEST' \
+                'IndexName=user-email-index,KeySchema=[{AttributeName=user_email,KeyType=HASH},{AttributeName=timestamp,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
             --billing-mode PAY_PER_REQUEST \
             --region $AWS_REGION
         
-        log_info "Waiting for nanodrop-requests table to be active..."
-        aws dynamodb wait table-exists --table-name nanodrop-requests --region $AWS_REGION
-        log_info "nanodrop-requests table created ✓"
+        log_info "Waiting for $REQUESTS_TABLE table to be active..."
+        aws dynamodb wait table-exists --table-name $REQUESTS_TABLE --region $AWS_REGION
+        log_info "$REQUESTS_TABLE table created ✓"
     fi
     
     # Create user stats table
-    if aws dynamodb describe-table --table-name nanodrop-user-stats --region $AWS_REGION &> /dev/null; then
-        log_warning "nanodrop-user-stats table already exists"
+    USER_STATS_TABLE="${TABLE_PREFIX}nanodrop-user-stats"
+    if aws dynamodb describe-table --table-name $USER_STATS_TABLE --region $AWS_REGION &> /dev/null; then
+        log_warning "$USER_STATS_TABLE table already exists"
     else
-        log_info "Creating nanodrop-user-stats table..."
+        log_info "Creating $USER_STATS_TABLE table..."
         aws dynamodb create-table \
-            --table-name nanodrop-user-stats \
+            --table-name $USER_STATS_TABLE \
             --attribute-definitions \
                 AttributeName=user_email,AttributeType=S \
             --key-schema \
@@ -171,15 +223,17 @@ create_dynamodb_tables() {
             --billing-mode PAY_PER_REQUEST \
             --region $AWS_REGION
         
-        log_info "Waiting for nanodrop-user-stats table to be active..."
-        aws dynamodb wait table-exists --table-name nanodrop-user-stats --region $AWS_REGION
-        log_info "nanodrop-user-stats table created ✓"
+        log_info "Waiting for $USER_STATS_TABLE table to be active..."
+        aws dynamodb wait table-exists --table-name $USER_STATS_TABLE --region $AWS_REGION
+        log_info "$USER_STATS_TABLE table created ✓"
     fi
 }
 
 # Create IAM role for Lambda
 create_iam_role() {
     log_info "Setting up IAM role..."
+    
+    ROLE_NAME="nanodrop-lambda-role-$ENVIRONMENT"
     
     # Create trust policy
     cat > trust-policy.json << EOF
@@ -194,16 +248,16 @@ create_iam_role() {
 EOF
     
     # Create role
-    if aws iam get-role --role-name nanodrop-lambda-role &> /dev/null; then
+    if aws iam get-role --role-name $ROLE_NAME &> /dev/null; then
         log_warning "IAM role already exists"
     else
-        aws iam create-role --role-name nanodrop-lambda-role --assume-role-policy-document file://trust-policy.json
+        aws iam create-role --role-name $ROLE_NAME --assume-role-policy-document file://trust-policy.json
         log_info "IAM role created ✓"
     fi
     
     # Attach policies
     log_info "Attaching IAM policies..."
-    aws iam attach-role-policy --role-name nanodrop-lambda-role --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
+    aws iam attach-role-policy --role-name $ROLE_NAME --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
     
     # Create custom policy for S3, SES, and DynamoDB
     cat > lambda-policy.json << EOF
@@ -214,7 +268,8 @@ EOF
             "Effect": "Allow",
             "Action": [
                 "s3:GetObject",
-                "s3:ListBucket"
+                "s3:ListBucket",
+                "s3:PutObject"
             ],
             "Resource": [
                 "arn:aws:s3:::$S3_BUCKET",
@@ -239,9 +294,9 @@ EOF
                 "dynamodb:Scan"
             ],
             "Resource": [
-                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/nanodrop-requests",
-                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/nanodrop-requests/index/*",
-                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/nanodrop-user-stats"
+                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/${TABLE_PREFIX}nanodrop-requests",
+                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/${TABLE_PREFIX}nanodrop-requests/index/*",
+                "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/${TABLE_PREFIX}nanodrop-user-stats"
             ]
         }
     ]
@@ -249,7 +304,7 @@ EOF
 EOF
     
     # Create and attach custom policy
-    aws iam put-role-policy --role-name nanodrop-lambda-role --policy-name nanodrop-lambda-policy --policy-document file://lambda-policy.json
+    aws iam put-role-policy --role-name $ROLE_NAME --policy-name nanodrop-lambda-policy-$ENVIRONMENT --policy-document file://lambda-policy.json
     
     # Clean up temp files
     rm -f trust-policy.json lambda-policy.json
@@ -265,6 +320,15 @@ deploy_function() {
     
     FUNCTION_EXISTS=$(aws lambda get-function --function-name $LAMBDA_FUNCTION_NAME --region $AWS_REGION 2>&1 || echo "not found")
     
+    ROLE_NAME="nanodrop-lambda-role-$ENVIRONMENT"
+    
+    # Environment variables - handle empty TABLE_PREFIX for prod
+    if [ -z "$TABLE_PREFIX" ]; then
+        ENV_VARS="OPENAI_API_KEY=$OPENAI_API_KEY,ENVIRONMENT=$ENVIRONMENT,S3_PREFIX=$S3_PREFIX"
+    else
+        ENV_VARS="OPENAI_API_KEY=$OPENAI_API_KEY,ENVIRONMENT=$ENVIRONMENT,S3_PREFIX=$S3_PREFIX,TABLE_PREFIX=$TABLE_PREFIX"
+    fi
+    
     if [[ $FUNCTION_EXISTS == *"not found"* ]]; then
         # Create new function
         log_info "Creating new Lambda function..."
@@ -272,16 +336,20 @@ deploy_function() {
             --function-name $LAMBDA_FUNCTION_NAME \
             --package-type Image \
             --code ImageUri=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:latest \
-            --role arn:aws:iam::$AWS_ACCOUNT_ID:role/nanodrop-lambda-role \
+            --role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME \
             --region $AWS_REGION \
             --timeout 120 \
             --memory-size 512 \
             --architectures arm64 \
-            --environment Variables={OPENAI_API_KEY=$OPENAI_API_KEY} || {
+            --environment Variables={$ENV_VARS} || {
                 log_error "Failed to create Lambda function"
                 exit 1
             }
         log_info "Lambda function created ✓"
+        
+        # Wait for function to be active
+        log_info "Waiting for Lambda function to be active..."
+        aws lambda wait function-active --function-name $LAMBDA_FUNCTION_NAME --region $AWS_REGION
     else
         # Update existing function
         log_info "Updating existing Lambda function configuration..."
@@ -290,7 +358,8 @@ deploy_function() {
             --region $AWS_REGION \
             --timeout 120 \
             --memory-size 512 \
-            --environment Variables={OPENAI_API_KEY=$OPENAI_API_KEY} || {
+            --role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME \
+            --environment Variables={$ENV_VARS} || {
                 log_warning "Failed to update configuration"
             }
         
@@ -319,28 +388,56 @@ configure_s3_trigger() {
     aws lambda add-permission \
         --function-name $LAMBDA_FUNCTION_NAME \
         --principal s3.amazonaws.com \
-        --statement-id AllowExecutionFromS3Bucket \
+        --statement-id AllowExecutionFromS3Bucket-$ENVIRONMENT \
         --action "lambda:InvokeFunction" \
         --source-arn arn:aws:s3:::$S3_BUCKET \
         --source-account $AWS_ACCOUNT_ID \
         2>/dev/null || log_warning "S3 permission already exists"
     
-    # Configure S3 bucket notification
-    cat > notification.json << EOF
+    # Get existing bucket notification configuration
+    aws s3api get-bucket-notification-configuration --bucket $S3_BUCKET > existing-notification.json 2>/dev/null || echo '{}' > existing-notification.json
+    
+    # Create new Lambda configuration
+    NEW_CONFIG=$(cat << EOF
 {
-    "LambdaFunctionConfigurations": [{
-        "LambdaFunctionArn": "arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT_ID:function:$LAMBDA_FUNCTION_NAME",
-        "Events": ["s3:ObjectCreated:*"],
-        "Filter": {
-            "Key": {
-                "FilterRules": [{
-                    "Name": "prefix",
-                    "Value": "incoming/"
-                }]
-            }
+    "Id": "nanodrop-$ENVIRONMENT",
+    "LambdaFunctionArn": "arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT_ID:function:$LAMBDA_FUNCTION_NAME",
+    "Events": ["s3:ObjectCreated:*"],
+    "Filter": {
+        "Key": {
+            "FilterRules": [{
+                "Name": "prefix",
+                "Value": "$S3_PREFIX"
+            }]
         }
-    }]
+    }
 }
+EOF
+)
+    
+    # Update configuration using Python to merge configurations
+    python3 << EOF
+import json
+import sys
+
+with open('existing-notification.json', 'r') as f:
+    config = json.load(f)
+
+if 'LambdaFunctionConfigurations' not in config:
+    config['LambdaFunctionConfigurations'] = []
+
+# Remove existing configuration for this environment
+config['LambdaFunctionConfigurations'] = [
+    c for c in config['LambdaFunctionConfigurations'] 
+    if c.get('Id') != 'nanodrop-$ENVIRONMENT'
+]
+
+# Add new configuration
+new_config = $NEW_CONFIG
+config['LambdaFunctionConfigurations'].append(new_config)
+
+with open('notification.json', 'w') as f:
+    json.dump(config, f, indent=2)
 EOF
     
     aws s3api put-bucket-notification-configuration \
@@ -350,8 +447,62 @@ EOF
             log_warning "Make sure the S3 bucket '$S3_BUCKET' exists and you have permission to modify it"
         }
     
-    rm -f notification.json
+    rm -f notification.json existing-notification.json
     log_info "S3 trigger configured ✓"
+}
+
+# Configure SES rule
+configure_ses_rule() {
+    log_info "Configuring SES rule..."
+    
+    # Check if rule set exists
+    RULE_SET_EXISTS=$(aws ses describe-active-receipt-rule-set 2>&1 || echo "not found")
+    
+    if [[ $RULE_SET_EXISTS == *"not found"* ]]; then
+        log_warning "No active SES rule set found. You'll need to configure SES manually."
+        log_info "To set up email receiving:"
+        log_info "1. Verify your domain in SES"
+        log_info "2. Create a receipt rule set"
+        log_info "3. Add a rule to save emails to S3 bucket: $S3_BUCKET/$S3_PREFIX"
+        log_info "4. Set the rule to trigger Lambda: $LAMBDA_FUNCTION_NAME"
+        return
+    fi
+    
+    # Create S3 action
+    S3_ACTION=$(cat << EOF
+{
+    "BucketName": "$S3_BUCKET",
+    "ObjectKeyPrefix": "$S3_PREFIX"
+}
+EOF
+)
+    
+    # Create Lambda action  
+    LAMBDA_ACTION=$(cat << EOF
+{
+    "FunctionArn": "arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT_ID:function:$LAMBDA_FUNCTION_NAME",
+    "InvocationType": "Event"
+}
+EOF
+)
+    
+    log_info "SES rule configuration:"
+    log_info "  Rule name: $SES_RULE_NAME"
+    log_info "  Recipient: nanodrop$EMAIL_DOMAIN"
+    log_info "  S3 path: s3://$S3_BUCKET/$S3_PREFIX"
+    log_info "  Lambda: $LAMBDA_FUNCTION_NAME"
+    
+    # Note: Actually creating/updating SES rules is complex and depends on existing setup
+    # For now, just provide instructions
+    if [ "$ENVIRONMENT" == "dev" ]; then
+        log_warning "For development environment, you need to manually add a new SES rule:"
+        log_info "1. Go to SES console: https://console.aws.amazon.com/ses/home?region=$AWS_REGION#receipt-rules:"
+        log_info "2. Add a new rule named: $SES_RULE_NAME"
+        log_info "3. Recipient: nanodrop-dev@yourdomain.com"
+        log_info "4. Actions:"
+        log_info "   - Save to S3: $S3_BUCKET/$S3_PREFIX"
+        log_info "   - Invoke Lambda: $LAMBDA_FUNCTION_NAME"
+    fi
 }
 
 # Test deployment
@@ -364,7 +515,7 @@ test_deployment() {
     "Records": [{
         "s3": {
             "bucket": {"name": "$S3_BUCKET"},
-            "object": {"key": "incoming/test-email"}
+            "object": {"key": "${S3_PREFIX}test-email"}
         }
     }]
 }
@@ -390,7 +541,10 @@ EOF
 
 # Main execution
 main() {
+    log_env "Deploying to $ENVIRONMENT environment"
+    
     check_prerequisites
+    configure_environment
     deploy_lambda
     
     # Ask if user wants to test

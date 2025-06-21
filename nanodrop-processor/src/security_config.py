@@ -25,7 +25,7 @@ class SecurityConfig:
     BURST_LIMIT = 2  # Max 2 emails in 5 minutes
     
     # Input validation limits
-    MAX_ATTACHMENT_SIZE_MB = 10
+    MAX_ATTACHMENT_SIZE_MB = 20
     MAX_ATTACHMENTS_PER_EMAIL = 5
     MAX_EMAIL_SIZE_MB = 25
     
@@ -58,10 +58,10 @@ class SecurityConfig:
         '.tk', '.ml', '.ga', '.cf'  # Free domains often used for spam
     ]
     
-    def __init__(self, dynamodb_table_name: str = 'nanodrop-rate-limits'):
+    def __init__(self, table_prefix: str = ''):
         self.dynamodb = boto3.resource('dynamodb')
         self.cloudwatch = boto3.client('cloudwatch')
-        self.table_name = dynamodb_table_name
+        self.table_name = f'{table_prefix}nanodrop-rate-limits'
         self._ensure_rate_limit_table()
     
     def _ensure_rate_limit_table(self):
@@ -99,7 +99,7 @@ class SecurityConfig:
             table.meta.client.update_time_to_live(
                 TableName=self.table_name,
                 TimeToLiveSpecification={
-                    'AttributeName': 'ttl',
+                    'AttributeName': 'expiration_time',
                     'Enabled': True
                 }
             )
@@ -197,14 +197,14 @@ class SecurityConfig:
                         recent_requests = :recent,
                         hour_start = :hour_start,
                         day_start = :day_start,
-                        ttl = :ttl''',
+                        expiration_time = :exp_time''',
                     ExpressionAttributeValues={
                         ':inc': 1,
                         ':zero': 0,
                         ':recent': recent_requests[-self.BURST_LIMIT:],  # Keep only recent N
                         ':hour_start': hour_start,
                         ':day_start': day_start,
-                        ':ttl': current_time + 86400  # 24 hour TTL
+                        ':exp_time': current_time + 86400  # 24 hour TTL
                     }
                 )
             else:
@@ -217,7 +217,7 @@ class SecurityConfig:
                         'recent_requests': [current_time],
                         'hour_start': current_time - (current_time % 3600),
                         'day_start': current_time - (current_time % 86400),
-                        'ttl': current_time + 86400
+                        'expiration_time': current_time + 86400
                     }
                 )
             

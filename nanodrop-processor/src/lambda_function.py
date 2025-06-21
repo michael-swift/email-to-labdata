@@ -31,9 +31,14 @@ ses = boto3.client('ses', region_name='us-west-2')
 # Initialize OpenAI client (will be created when needed or mocked for testing)
 openai_client = None
 
+# Get environment configuration
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
+S3_PREFIX = os.environ.get('S3_PREFIX', 'incoming/')
+TABLE_PREFIX = os.environ.get('TABLE_PREFIX', '')
+
 # Initialize security configuration and DynamoDB
-security = SecurityConfig()
-db_manager = DynamoDBManager()
+security = SecurityConfig(table_prefix=TABLE_PREFIX)
+db_manager = DynamoDBManager(table_prefix=TABLE_PREFIX)
 
 def get_openai_client():
     """Get or create OpenAI client."""
@@ -50,7 +55,7 @@ def lambda_handler(event, context):
     # Set up logging context
     request_id = context.aws_request_id if context else "local-test"
     logger.set_request_context(request_id, event)
-    logger.info("Lambda invoked")
+    logger.info("Lambda invoked", environment=ENVIRONMENT, s3_prefix=S3_PREFIX, table_prefix=TABLE_PREFIX)
     
     try:
         # Get S3 object info from event
@@ -178,23 +183,20 @@ def lambda_handler(event, context):
             # Calculate processing time for failed requests too
             processing_time_ms = int((time.time() - processing_start_time) * 1000)
             
-            # Log failed request to DynamoDB
-            try:
-                db_manager.log_request(
-                    user_email=sender_email,
-                    request_id=request_id,
-                    images_processed=len(image_attachments),
-                    samples_extracted=0,
-                    processing_time_ms=processing_time_ms,
-                    success=False,
-                    error_message=error_detail,
-                    additional_data={
-                        'error_type': error_type,
-                        's3_key': key
-                    }
-                )
-            except Exception as e:
-                logger.error("Failed to log failed request to DynamoDB", error=str(e))
+            # Log failed request to DynamoDB (fails gracefully)
+            db_manager.log_request(
+                user_email=sender_email,
+                request_id=request_id,
+                images_processed=len(image_attachments),
+                samples_extracted=0,
+                processing_time_ms=processing_time_ms,
+                success=False,
+                error_message=error_detail,
+                additional_data={
+                    'error_type': error_type,
+                    's3_key': key
+                }
+            )
             
             logger.request_completed(
                 success=False,
@@ -215,8 +217,44 @@ def lambda_handler(event, context):
                    images_processed=len(processed_images),
                    samples_extracted=total_samples)
         
+        # Log the data structure for debugging
+        logger.info("Data structure for CSV generation", 
+                   data_keys=list(combined_data.keys()),
+                   sample_count=len(combined_data.get('samples', [])),
+                   first_sample_keys=list(combined_data.get('samples', [{}])[0].keys()) if combined_data.get('samples') else [],
+                   has_columns=('columns' in combined_data),
+                   has_is_plate_format=('is_plate_format' in combined_data),
+                   columns=combined_data.get('columns', 'N/A'))
+        
         # Generate CSV
         csv_content = generate_csv(combined_data)
+        
+        # Save extracted data and CSV to S3 for accuracy analysis
+        debug_prefix = f"debug/{ENVIRONMENT}/" if ENVIRONMENT else "debug/"
+        timestamp_str = int(time.time())
+        
+        # Save raw extracted data as JSON
+        json_key = f"{debug_prefix}extractions/{request_id}_{timestamp_str}_raw_data.json"
+        json_data = {
+            "request_id": request_id,
+            "timestamp": datetime.now().isoformat(),
+            "user_email": from_email,
+            "image_count": len(processed_images),
+            "extracted_data": combined_data,
+            "processing_time_ms": int((time.time() - processing_start_time) * 1000)
+        }
+        s3.put_object(
+            Bucket=bucket, 
+            Key=json_key, 
+            Body=json.dumps(json_data, indent=2), 
+            ContentType='application/json'
+        )
+        logger.info("Raw extraction data saved", debug_json_key=json_key)
+        
+        # Save CSV for comparison
+        csv_key = f"{debug_prefix}csv/{request_id}_{timestamp_str}.csv"
+        s3.put_object(Bucket=bucket, Key=csv_key, Body=csv_content, ContentType='text/csv')
+        logger.info("CSV data saved", debug_csv_key=csv_key)
         
         # Send reply with CSV and original photos
         send_success_email(from_email, csv_content, combined_data, processed_images)
@@ -230,24 +268,20 @@ def lambda_handler(event, context):
             if 'instrument' in result and result['instrument'] not in instrument_types:
                 instrument_types.append(result['instrument'])
         
-        # Log to DynamoDB for analytics
-        try:
-            db_manager.log_request(
-                user_email=sender_email,
-                request_id=request_id,
-                images_processed=len(processed_images),
-                samples_extracted=total_samples,
-                processing_time_ms=processing_time_ms,
-                success=True,
-                instrument_types=instrument_types,
-                additional_data={
-                    'assay_type': combined_data.get('assay_type', 'Unknown'),
-                    's3_key': key
-                }
-            )
-        except Exception as e:
-            logger.error("Failed to log to DynamoDB", error=str(e))
-            # Don't fail the whole request if DynamoDB logging fails
+        # Log to DynamoDB for analytics (fails gracefully)
+        db_manager.log_request(
+            user_email=sender_email,
+            request_id=request_id,
+            images_processed=len(processed_images),
+            samples_extracted=total_samples,
+            processing_time_ms=processing_time_ms,
+            success=True,
+            instrument_types=instrument_types,
+            additional_data={
+                'assay_type': combined_data.get('assay_type', 'Unknown'),
+                's3_key': key
+            }
+        )
         
         # Log successful completion
         logger.request_completed(
@@ -265,25 +299,22 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.error("Email processing failed", exception=e)
         
-        # Log catastrophic failure to DynamoDB if we have sender info
+        # Log catastrophic failure to DynamoDB if we have sender info (fails gracefully)
         if 'sender_email' in locals() and 'processing_start_time' in locals():
-            try:
-                processing_time_ms = int((time.time() - processing_start_time) * 1000)
-                db_manager.log_request(
-                    user_email=sender_email,
-                    request_id=request_id,
-                    images_processed=0,
-                    samples_extracted=0,
-                    processing_time_ms=processing_time_ms,
-                    success=False,
-                    error_message=f"Catastrophic failure: {str(e)}",
-                    additional_data={
-                        'error_type': 'system_error',
-                        's3_key': locals().get('key', 'unknown')
-                    }
-                )
-            except Exception as db_error:
-                logger.error("Failed to log catastrophic failure to DynamoDB", error=str(db_error))
+            processing_time_ms = int((time.time() - processing_start_time) * 1000)
+            db_manager.log_request(
+                user_email=sender_email,
+                request_id=request_id,
+                images_processed=0,
+                samples_extracted=0,
+                processing_time_ms=processing_time_ms,
+                success=False,
+                error_message=f"Catastrophic failure: {str(e)}",
+                additional_data={
+                    'error_type': 'system_error',
+                    's3_key': locals().get('key', 'unknown')
+                }
+            )
         
         if 'from_email' in locals():
             send_error_email(from_email, f"Processing error: {str(e)}")
@@ -661,7 +692,15 @@ def generate_csv(data):
     # Determine CSV structure based on available data
     first_sample = samples[0]
     
-    if 'columns' in data:
+    # Check if this is plate format (samples have 'well' and 'value' OR columns are numbered)
+    is_plate_format = ('well' in first_sample and 'value' in first_sample) or \
+                     (data.get('is_plate_format', False)) or \
+                     ('columns' in data and all(str(col).isdigit() for col in data['columns'][:5]))
+    
+    if is_plate_format:
+        # Plate format - well positions and values
+        headers = ['Well', 'Value', 'Quality Assessment', 'Assay Type']
+    elif 'columns' in data:
         # New simplified format - use detected columns as headers
         headers = data['columns']
         # Add quality and assay columns
@@ -685,70 +724,105 @@ def generate_csv(data):
     writer.writerow(headers)
     
     # Write data rows
-    for sample in samples:
-        row = []
+    if is_plate_format:
+        # For plate format, generate complete 96-well grid
+        # Create a mapping of extracted data
+        extracted_data = {}
+        for sample in samples:
+            if 'well' in sample and 'value' in sample:
+                extracted_data[sample['well']] = sample['value']
+            else:
+                # Fallback: reconstruct well position
+                sample_index = samples.index(sample)
+                row_letter = chr(ord('A') + (sample_index // 12))
+                col_number = (sample_index % 12) + 1
+                well = f"{row_letter}{col_number}"
+                value = sample.get('value', '')
+                if not value:
+                    for key, val in sample.items():
+                        if isinstance(val, (int, float)) and key not in ['sample_number', 'row', 'col']:
+                            value = val
+                            break
+                extracted_data[well] = value
         
-        if 'columns' in data:
-            # New simplified format - extract values in column order
-            for col in data['columns']:
-                row.append(sample.get(col, ''))
+        # Generate all 96 wells in order
+        for row_letter in 'ABCDEFGH':
+            for col_number in range(1, 13):
+                well = f"{row_letter}{col_number}"
+                if well in extracted_data and extracted_data[well] != '':
+                    value = extracted_data[well]
+                    quality = 'Check manually'
+                else:
+                    value = 'not extracted'
+                    quality = 'Manual entry required'
+                
+                writer.writerow([well, value, quality, assay_type])
+    else:
+        # Non-plate format - original logic
+        for sample in samples:
+            row = []
             
-            # Try to assess quality if we have the right columns
-            quality = 'Check manually'
-            try:
-                if 'A260/A280' in sample and 'A260/A230' in sample:
-                    a260_a280 = float(sample['A260/A280'])
-                    a260_a230 = float(sample['A260/A230'])
-                    concentration = float(sample.get('Concentration', sample.get('ng/uL', 0)))
-                    quality = assess_quality(a260_a280, a260_a230, concentration)
-            except (ValueError, TypeError, KeyError):
-                pass
-            
-        elif 'long_form_data' in data:
-            # Complex format (old flexible format)
-            std_vals = sample.get('standardized_values', {})
-            row.append(std_vals.get('sample_id', sample.get('row_id', 'Unknown')))
-            
-            concentration = std_vals.get('concentration_ng_ul', '')
-            a260_a280 = std_vals.get('a260_a280', '')
-            a260_a230 = std_vals.get('a260_a230', '')
-            
-            if 'Concentration (ng/μL)' in headers:
-                row.append(concentration)
-            if 'A260/A280' in headers:
-                row.append(a260_a280)
-            if 'A260/A230' in headers:
-                row.append(a260_a230)
-            
-            # Quality assessment
-            quality = 'Insufficient data'
-            if concentration and a260_a280 and a260_a230:
+            if 'columns' in data:
+                # New simplified format - extract values in column order
+                for col in data['columns']:
+                    row.append(sample.get(col, ''))
+                
+                # Try to assess quality if we have the right columns
+                quality = 'Check manually'
                 try:
-                    quality = assess_quality(float(a260_a280), float(a260_a230), float(concentration))
-                except (ValueError, TypeError):
+                    if 'A260/A280' in sample and 'A260/A230' in sample:
+                        a260_a280 = float(sample['A260/A280'])
+                        a260_a230 = float(sample['A260/A230'])
+                        concentration = float(sample.get('Concentration', sample.get('ng/uL', 0)))
+                        quality = assess_quality(a260_a280, a260_a230, concentration)
+                except (ValueError, TypeError, KeyError):
+                    pass
+                
+            elif 'long_form_data' in data:
+                # Complex format (old flexible format)
+                std_vals = sample.get('standardized_values', {})
+                row.append(std_vals.get('sample_id', sample.get('row_id', 'Unknown')))
+                
+                concentration = std_vals.get('concentration_ng_ul', '')
+                a260_a280 = std_vals.get('a260_a280', '')
+                a260_a230 = std_vals.get('a260_a230', '')
+                
+                if 'Concentration (ng/μL)' in headers:
+                    row.append(concentration)
+                if 'A260/A280' in headers:
+                    row.append(a260_a280)
+                if 'A260/A230' in headers:
+                    row.append(a260_a230)
+                
+                # Quality assessment
+                quality = 'Insufficient data'
+                if concentration and a260_a280 and a260_a230:
+                    try:
+                        quality = assess_quality(float(a260_a280), float(a260_a230), float(concentration))
+                    except (ValueError, TypeError):
+                        quality = 'Check values'
+            else:
+                # Legacy format
+                row = [
+                    sample.get('sample_number', ''),
+                    sample.get('concentration', ''),
+                    sample.get('a260_a280', ''),
+                    sample.get('a260_a230', '')
+                ]
+                
+                try:
+                    quality = assess_quality(sample['a260_a280'], sample['a260_a230'], sample['concentration'])
+                except (KeyError, TypeError):
                     quality = 'Check values'
-        else:
-            # Legacy format
-            row = [
-                sample.get('sample_number', ''),
-                sample.get('concentration', ''),
-                sample.get('a260_a280', ''),
-                sample.get('a260_a230', '')
-            ]
             
-            try:
-                quality = assess_quality(sample['a260_a280'], sample['a260_a230'], sample['concentration'])
-            except (KeyError, TypeError):
-                quality = 'Check values'
-        
-        row.append(quality)
-        row.append(assay_type)
-        writer.writerow(row)
+            row.append(quality)
+            row.append(assay_type)
+            writer.writerow(row)
     
     return output.getvalue()
 
 
-def compress_image_for_email(image_data, max_size_kb=500):
+def compress_image_for_email(image_data, max_size_kb=2000):
     """Compress image to reduce email attachment size."""
     try:
         # Open image
@@ -817,8 +891,40 @@ def send_success_email(to_email, csv_content, data, original_images):
     msg['From'] = 'nanodrop@seminalcapital.net'
     msg['To'] = to_email
     
-    # Email body
-    body = f"""Your Nanodrop data has been processed successfully!
+    # Check if this is plate format
+    is_plate_format = data.get('is_plate_format', False) or \
+                     (data['samples'] and 'well' in data['samples'][0])
+    
+    # Log plate format detection for debugging
+    logger.info("Email format detection", 
+               is_plate_format=is_plate_format,
+               has_is_plate_format_field=data.get('is_plate_format', False),
+               has_well_in_samples=(data['samples'] and 'well' in data['samples'][0]) if data['samples'] else False,
+               first_sample_structure=data['samples'][0] if data['samples'] else None)
+    
+    # Email body - simplified for plate readers
+    if is_plate_format:
+        body = f"""Your lab data has been digitized successfully!
+
+Instrument Type: {data.get('instrument', assay_type)}
+Format: 96-well plate
+Samples extracted: {sample_count} of 96 wells
+
+The detailed results are attached as a complete 96-well CSV. Wells not extracted by AI are marked as "not extracted" for manual review.
+
+Data Preview (first 5 wells):
+"""
+        # Show only first 5 samples for preview
+        for i, sample in enumerate(data['samples'][:5], 1):
+            well = sample.get('well', f'Sample {i}')
+            value = sample.get('value', 'N/A')
+            body += f"    {well}: {value}\n"
+        
+        if sample_count > 5:
+            body += f"    ... and {sample_count - 5} more wells (see CSV for complete data)\n"
+    else:
+        # Standard nanodrop format with full details
+        body = f"""Your lab data has been digitized successfully!
 
 Assay Type: {assay_type}
 Images Processed: {image_count}
@@ -829,24 +935,35 @@ ANALYSIS SUMMARY:
 
 SAMPLE RESULTS:
 """
-    
-    for sample in data['samples']:
-        concentration = sample['concentration']
-        sample_num = sample['sample_number']
-        a260_280 = sample['a260_a280']
-        a260_230 = sample['a260_a230']
         
-        if concentration < 0:
-            body += f"    Sample {sample_num}: INVALID (negative concentration: {concentration})\n"
-        else:
-            body += f"    Sample {sample_num}: {concentration} ng/uL (260/280: {a260_280}, 260/230: {a260_230})\n"
+        # Handle standard format
+        for i, sample in enumerate(data['samples'], 1):
+            # Try to get concentration from various possible fields
+            concentration = None
+            sample_id = None
+            a260_280 = None
+            a260_230 = None
+            
+            # Standard table format - try different column names
+            sample_id = sample.get('#', sample.get('sample_number', f'Sample {i}'))
+            concentration = sample.get('ng/μL', sample.get('ng/uL', sample.get('concentration', 'N/A')))
+            a260_280 = sample.get('A260/A280', sample.get('a260_a280'))
+            a260_230 = sample.get('A260/A230', sample.get('a260_a230'))
+            
+            # Format the output
+            if isinstance(concentration, (int, float)) and concentration < 0:
+                body += f"    {sample_id}: INVALID (negative value: {concentration})\n"
+            elif a260_280 and a260_230:
+                body += f"    {sample_id}: {concentration} ng/μL (260/280: {a260_280}, 260/230: {a260_230})\n"
+            else:
+                body += f"    {sample_id}: {concentration}\n"
     
     body += f"""
 
 The detailed results are attached as a CSV file, along with your original image(s) for reference.
 
 --
-Nanodrop Processing Service
+Lab Data Digitization Service
 """
     
     msg.attach(MIMEText(body, 'plain'))
@@ -865,7 +982,7 @@ Nanodrop Processing Service
     if isinstance(original_images, list):
         for i, image_data in enumerate(original_images, 1):
             # Compress image to reduce email size
-            compressed_image = compress_image_for_email(image_data, max_size_kb=500)
+            compressed_image = compress_image_for_email(image_data, max_size_kb=2000)
             
             img_attachment = MIMEBase('image', 'jpeg')
             img_attachment.set_payload(compressed_image)
@@ -877,7 +994,7 @@ Nanodrop Processing Service
             msg.attach(img_attachment)
     else:
         # Single image (backward compatibility)
-        compressed_image = compress_image_for_email(original_images, max_size_kb=500)
+        compressed_image = compress_image_for_email(original_images, max_size_kb=2000)
         
         img_attachment = MIMEBase('image', 'jpeg')
         img_attachment.set_payload(compressed_image)

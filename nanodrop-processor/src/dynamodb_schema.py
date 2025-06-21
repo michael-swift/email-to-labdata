@@ -11,10 +11,11 @@ import uuid
 class DynamoDBManager:
     """Manages DynamoDB operations for request logging and analytics."""
     
-    def __init__(self):
+    def __init__(self, table_prefix=''):
         """Initialize DynamoDB client and table names."""
         self.dynamodb = boto3.resource('dynamodb')
-        self.requests_table_name = 'nanodrop-requests'
+        self.table_prefix = table_prefix
+        self.requests_table_name = f'{table_prefix}nanodrop-requests'
         
         # Try to get the table, create if it doesn't exist
         try:
