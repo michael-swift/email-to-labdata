@@ -16,8 +16,9 @@ class DynamoDBManager:
         self.dynamodb = boto3.resource('dynamodb')
         self.table_prefix = table_prefix
         self.requests_table_name = f'{table_prefix}nanodrop-requests'
+        self.user_stats_table_name = f'{table_prefix}nanodrop-user-stats'
         
-        # Try to get the table, create if it doesn't exist
+        # Initialize requests table
         try:
             self.requests_table = self.dynamodb.Table(self.requests_table_name)
             # Test if table exists by describing it
@@ -25,6 +26,15 @@ class DynamoDBManager:
         except Exception:
             # Table doesn't exist, but don't fail - just log errors
             self.requests_table = None
+        
+        # Initialize user stats table
+        try:
+            self.user_stats_table = self.dynamodb.Table(self.user_stats_table_name)
+            # Test if table exists by describing it
+            self.user_stats_table.table_status
+        except Exception:
+            # Table doesn't exist, but don't fail - just log errors
+            self.user_stats_table = None
     
     def log_request(
         self,

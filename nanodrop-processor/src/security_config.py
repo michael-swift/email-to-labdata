@@ -70,10 +70,14 @@ class SecurityConfig:
             self.rate_table = self.dynamodb.Table(self.table_name)
             self.rate_table.load()
         except Exception:
-            # Table doesn't exist - disable rate limiting rather than fail
-            # This allows the service to work even without DynamoDB table
-            self.rate_table = None
-            print(f"Warning: Rate limiting table {self.table_name} not available. Rate limiting disabled.")
+            # Table doesn't exist - try to create it
+            try:
+                self._create_rate_limit_table()
+                self.rate_table = self.dynamodb.Table(self.table_name)
+            except Exception as e:
+                # If creation fails, disable rate limiting gracefully
+                self.rate_table = None
+                print(f"Warning: Could not create rate limiting table {self.table_name}: {e}. Rate limiting disabled.")
     
     def _create_rate_limit_table(self):
         """Create DynamoDB table for rate limiting."""
