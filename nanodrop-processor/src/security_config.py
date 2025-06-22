@@ -70,7 +70,10 @@ class SecurityConfig:
             self.rate_table = self.dynamodb.Table(self.table_name)
             self.rate_table.load()
         except Exception:
-            self._create_rate_limit_table()
+            # Table doesn't exist - disable rate limiting rather than fail
+            # This allows the service to work even without DynamoDB table
+            self.rate_table = None
+            print(f"Warning: Rate limiting table {self.table_name} not available. Rate limiting disabled.")
     
     def _create_rate_limit_table(self):
         """Create DynamoDB table for rate limiting."""
@@ -144,6 +147,10 @@ class SecurityConfig:
     
     def check_rate_limit(self, from_email: str) -> Dict[str, any]:
         """Enhanced rate limiting with burst protection."""
+        # If rate limiting table is not available, allow all requests
+        if self.rate_table is None:
+            return {'allowed': True, 'reason': 'Rate limiting unavailable', 'retry_after': 0}
+        
         email_hash = hashlib.sha256(from_email.lower().encode()).hexdigest()
         current_time = int(time.time())
         

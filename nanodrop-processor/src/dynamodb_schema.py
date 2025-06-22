@@ -69,11 +69,80 @@ class DynamoDBManager:
                 item['additional_data'] = additional_data
             
             self.requests_table.put_item(Item=item)
+            
+            # Update user stats (aggregation)
+            self._update_user_stats(user_email, success, processing_time_ms, samples_extracted, instrument_types)
+            
             return True
             
         except Exception:
             # Don't fail the main request if DynamoDB fails
             return False
+    
+    def _update_user_stats(self, user_email: str, success: bool, processing_time_ms: int, 
+                          samples_extracted: int, instrument_types: Optional[List[str]] = None):
+        """Update aggregated user statistics."""
+        if not self.user_stats_table:
+            return
+        
+        try:
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            # Try to get existing stats for today
+            response = self.user_stats_table.get_item(
+                Key={
+                    'user_email': user_email,
+                    'date': today
+                }
+            )
+            
+            if 'Item' in response:
+                # Update existing stats
+                item = response['Item']
+                item['total_requests'] = item.get('total_requests', 0) + 1
+                item['successful_requests'] = item.get('successful_requests', 0) + (1 if success else 0)
+                item['failed_requests'] = item.get('failed_requests', 0) + (0 if success else 1)
+                item['total_samples'] = item.get('total_samples', 0) + samples_extracted
+                item['total_processing_time_ms'] = item.get('total_processing_time_ms', 0) + processing_time_ms
+                
+                # Update instrument types
+                existing_instruments = item.get('instrument_types_used', [])
+                if instrument_types:
+                    for instrument in instrument_types:
+                        if instrument not in existing_instruments:
+                            existing_instruments.append(instrument)
+                item['instrument_types_used'] = existing_instruments
+                
+                # Calculate averages
+                item['avg_processing_time_ms'] = item['total_processing_time_ms'] // item['total_requests']
+                item['success_rate'] = item['successful_requests'] / item['total_requests']
+                
+            else:
+                # Create new stats entry
+                item = {
+                    'user_email': user_email,
+                    'date': today,
+                    'total_requests': 1,
+                    'successful_requests': 1 if success else 0,
+                    'failed_requests': 0 if success else 1,
+                    'total_samples': samples_extracted,
+                    'total_processing_time_ms': processing_time_ms,
+                    'avg_processing_time_ms': processing_time_ms,
+                    'success_rate': 1.0 if success else 0.0,
+                    'instrument_types_used': instrument_types or [],
+                    'first_request_timestamp': datetime.now(timezone.utc).isoformat(),
+                    'last_request_timestamp': datetime.now(timezone.utc).isoformat()
+                }
+            
+            # Always update the last request timestamp
+            item['last_request_timestamp'] = datetime.now(timezone.utc).isoformat()
+            
+            # Save updated stats
+            self.user_stats_table.put_item(Item=item)
+            
+        except Exception:
+            # Don't fail if user stats update fails - fail silently
+            pass
     
     def get_user_analytics(self, user_email: str, days: int = 30) -> Optional[Dict]:
         """Get analytics for a specific user."""
