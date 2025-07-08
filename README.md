@@ -1,4 +1,4 @@
-# nanonano
+# Email-to-LabData
 
 ## Nanodrop Email Processor
 
