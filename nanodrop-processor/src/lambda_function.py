@@ -50,6 +50,45 @@ def get_openai_client():
         openai_client = openai.OpenAI(api_key=api_key)
     return openai_client
 
+def normalize_unicode_headers(data):
+    """Normalize Unicode characters in column headers and sample data to ASCII-safe alternatives."""
+    if not isinstance(data, dict):
+        return data
+    
+    # Character mapping for common corruptions
+    char_mapping = {
+        'μ': 'u',  # Greek mu to ASCII u
+        '無': 'u',  # Corrupted character back to u
+        '°': 'deg'  # Degree symbol to ASCII
+    }
+    
+    def clean_string(text):
+        if not isinstance(text, str):
+            return text
+        for old_char, new_char in char_mapping.items():
+            text = text.replace(old_char, new_char)
+        return text
+    
+    # Clean column headers
+    if 'columns' in data and isinstance(data['columns'], list):
+        data['columns'] = [clean_string(col) for col in data['columns']]
+    
+    # Clean sample data keys
+    if 'samples' in data and isinstance(data['samples'], list):
+        cleaned_samples = []
+        for sample in data['samples']:
+            if isinstance(sample, dict):
+                cleaned_sample = {}
+                for key, value in sample.items():
+                    cleaned_key = clean_string(key)
+                    cleaned_sample[cleaned_key] = value
+                cleaned_samples.append(cleaned_sample)
+            else:
+                cleaned_samples.append(sample)
+        data['samples'] = cleaned_samples
+    
+    return data
+
 def lambda_handler(event, context):
     """Main Lambda handler - processes emails from S3."""
     # Set up logging context
@@ -109,8 +148,11 @@ def lambda_handler(event, context):
             # Continue processing if security check fails (fail open for availability)
         
         # Extract all image attachments
+        logger.info("Starting image extraction from email")
         image_attachments = extract_images_from_email(msg)
+        logger.info(f"Found {len(image_attachments) if image_attachments else 0} image attachments")
         if not image_attachments:
+            logger.info("No image attachments found, sending error email")
             send_error_email(from_email, "No image attachments found")
             return {'statusCode': 200, 'body': 'No images found'}
         
@@ -354,6 +396,7 @@ def extract_nanodrop_data(image_bytes):
 
     For standard tables (Nanodrop, UV-Vis, etc.):
     - Extract exact column headers and all row data
+    - Use ASCII-safe units: "ng/uL" instead of "ng/μL", "deg" instead of "°"
     
     For 96-well plates:
     - Extract well positions (A1, B2, etc.) and values
@@ -371,6 +414,7 @@ def extract_nanodrop_data(image_bytes):
     }
 
     Extract all visible data precisely. Use scientific notation if shown (e.g., 1.23E+04).
+    IMPORTANT: Use ASCII-safe characters only in column headers and units.
     """
     
     try:
@@ -425,6 +469,9 @@ def extract_nanodrop_data(image_bytes):
     
     try:
         result = json.loads(json_str.strip())
+        
+        # Normalize Unicode characters in headers and data
+        result = normalize_unicode_headers(result)
         
         # Check if extraction completely failed (no data found)
         if "error" in result and result.get("error") == "no_data":
@@ -711,7 +758,7 @@ def generate_csv(data):
         if 'standardized_values' in first_sample:
             std_vals = first_sample['standardized_values']
             if 'concentration_ng_ul' in std_vals:
-                headers.append('Concentration (ng/μL)')
+                headers.append('Concentration (ng/uL)')
             if 'a260_a280' in std_vals:
                 headers.append('A260/A280')
             if 'a260_a230' in std_vals:
@@ -719,7 +766,7 @@ def generate_csv(data):
         headers.extend(['Quality Assessment', 'Assay Type'])
     else:
         # Legacy format
-        headers = ['Sample ID', 'Concentration (ng/μL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type']
+        headers = ['Sample ID', 'Concentration (ng/uL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type']
     
     writer.writerow(headers)
     
@@ -787,7 +834,7 @@ def generate_csv(data):
                 a260_a280 = std_vals.get('a260_a280', '')
                 a260_a230 = std_vals.get('a260_a230', '')
                 
-                if 'Concentration (ng/μL)' in headers:
+                if 'Concentration (ng/uL)' in headers:
                     row.append(concentration)
                 if 'A260/A280' in headers:
                     row.append(a260_a280)
@@ -946,7 +993,7 @@ SAMPLE RESULTS:
             
             # Standard table format - try different column names
             sample_id = sample.get('#', sample.get('sample_number', f'Sample {i}'))
-            concentration = sample.get('ng/μL', sample.get('ng/uL', sample.get('concentration', 'N/A')))
+            concentration = sample.get('ng/μL', sample.get('ng/uL', sample.get('ng/無', sample.get('concentration', 'N/A'))))
             a260_280 = sample.get('A260/A280', sample.get('a260_a280'))
             a260_230 = sample.get('A260/A230', sample.get('a260_a230'))
             
@@ -954,7 +1001,7 @@ SAMPLE RESULTS:
             if isinstance(concentration, (int, float)) and concentration < 0:
                 body += f"    {sample_id}: INVALID (negative value: {concentration})\n"
             elif a260_280 and a260_230:
-                body += f"    {sample_id}: {concentration} ng/μL (260/280: {a260_280}, 260/230: {a260_230})\n"
+                body += f"    {sample_id}: {concentration} ng/uL (260/280: {a260_280}, 260/230: {a260_230})\n"
             else:
                 body += f"    {sample_id}: {concentration}\n"
     
