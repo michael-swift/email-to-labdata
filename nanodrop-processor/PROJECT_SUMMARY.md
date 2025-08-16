@@ -1,27 +1,29 @@
-# Nanodrop Email Processing System - Project Summary
+# Lab Data Digitization Service - Project Summary
 
 ## What It Does
 
-A simple email automation tool that helps researchers digitize their lab equipment readings. Users email photos of Nanodrop spectrophotometer screens to `nanodrop@seminalcapital.net` and receive back CSV files with the extracted data.
+A simple email automation tool that helps researchers digitize their lab equipment readings. Users email photos of any lab instrument screen to `digitizer@seminalcapital.net` and receive back CSV files with the extracted data.
 
 **Process:**
-1. Researcher emails photo of Nanodrop screen
-2. System extracts measurements using GPT-4 vision
-3. Researcher gets CSV reply with concentration, purity ratios, and quality assessment
+1. Researcher emails photo of lab instrument screen (Nanodrop, plate reader, UV-Vis, etc.)
+2. System extracts measurements using GPT-4o vision API
+3. Researcher gets CSV reply with structured data and quality assessment
 
 ## Who It's For
 
-- Laboratory researchers using Nanodrop spectrophotometers
-- Anyone who needs to digitize DNA/RNA concentration measurements
+- Laboratory researchers using any lab instruments with screen displays
+- Anyone who needs to digitize tabular data from lab equipment
 - Small labs without automated data management systems
+- Research facilities looking to streamline data collection workflows
 
 ## Current Capabilities
 
+- **Universal instrument support** - Handles any lab equipment with tabular data
 - **Multi-image processing** - Handle multiple photos in one email
-- **Assay type detection** - Automatically identifies RNA vs DNA
-- **Quality assessment** - Flags contamination and measurement issues
+- **Intelligent format detection** - Automatically identifies instrument type and data structure
+- **Quality assessment** - Smart validation and quality indicators
 - **Security** - Rate limiting (3/hour, 10/day) and input validation
-- **Encoding fix** - Uses "uL" instead of "μL" to prevent CSV issues
+- **ASCII-safe output** - Clean CSV format without encoding issues
 
 ## Technical Status
 
@@ -44,4 +46,14 @@ Not a commercial product - just a practical tool to automate a tedious manual ta
 
 ## Usage
 
-Simply email a photo of your Nanodrop screen to `nanodrop@seminalcapital.net` and receive a CSV file with your measurements within seconds.
+Simply email a photo of your lab instrument screen to `digitizer@seminalcapital.net` and receive a CSV file with your measurements within seconds.
+
+**Supported Instruments:**
+- Nanodrop spectrophotometers (DNA/RNA concentration)
+- 96-well plate readers (complete plate data)
+- UV-Vis spectrometers (absorbance measurements)
+- Any lab instrument with tabular data display
+
+**Alternative Email Addresses:**
+- `digitizer@seminalcapital.net` (primary)
+- `nanodrop@seminalcapital.net` (legacy, still works)

@@ -18,10 +18,9 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from lambda_function import (
-    extract_nanodrop_data, 
-    merge_nanodrop_results, 
+    extract_lab_data, 
+    merge_lab_results, 
     generate_csv,
-    assess_quality,
     extract_images_from_email
 )
 from tests.ground_truth_data import (
@@ -60,7 +59,7 @@ class TestRealNanodropExtraction:
         image_bytes = self.load_image_bytes(image_name)
         
         # Real LLM extraction
-        result = extract_nanodrop_data(image_bytes)
+        result = extract_lab_data(image_bytes)
         
         print(f"\n=== Testing {image_name} ===")
         print(f"Expected samples: {len(ground_truth['samples'])}")
@@ -111,7 +110,7 @@ class TestMultiImageProcessing:
             "samples": [{"sample_number": 1, "concentration": 50.0, "a260_a280": 1.85, "a260_a230": 2.0}]
         }
         
-        merged = merge_nanodrop_results([single_result])
+        merged = merge_lab_results([single_result])
         assert merged == single_result
 
 

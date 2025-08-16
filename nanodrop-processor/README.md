@@ -1,6 +1,6 @@
-# Nanodrop Email Processing System
+# Lab Data Digitization Service
 
-An AWS Lambda-based service that processes Nanodrop spectrophotometer images sent via email. Users email photos to `nanodrop@seminalcapital.net` and receive CSV files with extracted data.
+An AWS Lambda-based service that processes lab instrument images sent via email. Users email photos to `digitizer@seminalcapital.net` and receive CSV files with extracted data. Supports any lab instrument including Nanodrop spectrophotometers, plate readers, UV-Vis spectrometers, and more.
 
 ## Current Architecture
 
@@ -15,9 +15,22 @@ User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
 
 ## How It Works
 
-1. **Send Email**: Email a Nanodrop screen photo to `nanodrop@seminalcapital.net`
+1. **Send Email**: Email a lab instrument screen photo to `digitizer@seminalcapital.net`
 2. **Automatic Processing**: Image analyzed with GPT-4o vision API
 3. **Receive Results**: Get CSV file with extracted data via email reply
+
+## Supported Instruments
+
+- **Nanodrop spectrophotometers** - DNA/RNA concentration and purity ratios
+- **96-well plate readers** - Complete plate data extraction
+- **UV-Vis spectrometers** - Absorbance and concentration measurements  
+- **General lab instruments** - Any device with tabular data display
+
+## Available Email Addresses
+
+- **`digitizer@seminalcapital.net`** - Primary generic lab data service
+- **`nanodrop@seminalcapital.net`** - Legacy address (still works)
+- **`nanodrop-dev@seminalcapital.net`** - Development testing
 
 ## Deployment
 
@@ -110,28 +123,28 @@ nanodrop-processor/
 
 The Lambda function (`src/lambda_function.py`) handles:
 1. **Email Processing**: Extracts images from S3-stored emails
-2. **Image Analysis**: Uses GPT-4o to extract Nanodrop data
+2. **Image Analysis**: Uses GPT-4o to extract lab instrument data
 3. **CSV Generation**: Creates formatted CSV with quality assessment
 4. **Email Reply**: Sends results back via SES
 
 ## Key Features
 
 - **Automated Email Processing**: SES integration for receiving emails
-- **Image Analysis**: GPT-4o vision API for data extraction  
+- **Universal Instrument Support**: GPT-4o vision API for any lab equipment data extraction  
 - **Multi-Image Support**: Process multiple images with intelligent merging
-- **Assay Type Detection**: Automatic RNA/DNA identification
-- **Quality Assessment**: Automatic contamination detection
-- **CSV Export**: Formatted results with quality indicators and LLM commentary
+- **Intelligent Format Detection**: Automatic recognition of instrument types and data formats
+- **Quality Assessment**: Smart data validation and quality indicators
+- **CSV Export**: Formatted results with quality indicators and AI commentary
 - **Security Hardening**: Rate limiting (3/hour, 10/day), input validation
 - **Error Handling**: Graceful failures with user notifications
 
 ## AWS Resources Required
 
-- **S3 Bucket**: `nanodrop-emails-seminalcapital` (for incoming emails)
-- **Lambda Function**: `nanodrop-processor`
+- **S3 Bucket**: `nanodrop-emails-seminalcapital` (for incoming emails) *Note: legacy naming*
+- **Lambda Function**: `nanodrop-processor` (handles all lab instruments)
 - **SES Domain**: Verified domain for sending/receiving
 - **IAM Role**: Lambda execution with S3 and SES permissions
-- **DynamoDB Table**: `nanodrop-rate-limits` (auto-created for rate limiting)
+- **DynamoDB Tables**: Rate limiting and analytics (auto-created)
 - **ECR Repository**: Container images for Lambda deployment
 
 ## Environment Variables
@@ -183,3 +196,22 @@ For issues or questions:
 - Check CloudWatch logs: `/aws/lambda/nanodrop-processor`
 - Review DEBUGGING_GUIDE.md  
 - Run diagnostic: `python3 debug_lambda.py`
+
+## Usage Examples
+
+**Nanodrop Spectrophotometer:**
+```
+Send photo of Nanodrop screen → Receive CSV with concentration, A260/A280, A260/A230 ratios
+```
+
+**96-Well Plate Reader:**
+```
+Send photo of plate results → Receive complete 96-well CSV with all measurements
+```
+
+**UV-Vis Spectrometer:**
+```  
+Send photo of absorbance table → Receive CSV with wavelengths and absorbance values
+```
+
+Simply email any lab instrument screen photo to **`digitizer@seminalcapital.net`** and receive structured data within seconds!

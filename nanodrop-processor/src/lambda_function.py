@@ -115,6 +115,17 @@ def lambda_handler(event, context):
         from_email = msg['From']
         subject = msg['Subject']
         
+        # Loop prevention: Check if this is a results email we sent
+        if (subject and "Lab Data Results" in subject) or \
+           (from_email and any(addr in from_email for addr in ['digitizer@seminalcapital.net', 'nanodrop@seminalcapital.net'])):
+            logger.info("Ignoring results email to prevent loop", subject=subject, from_email=from_email)
+            return {'statusCode': 200, 'body': 'Results email ignored'}
+        
+        # Check for our processing header to prevent re-processing
+        if msg.get('X-Lab-Data-Processed'):
+            logger.info("Ignoring already processed email", message_id=msg.get('Message-ID'))
+            return {'statusCode': 200, 'body': 'Already processed'}
+        
         # Extract just the email address from the From field
         # Handle formats like "Name <email@domain.com>" or just "email@domain.com"
         email_match = re.search(r'<(.+?)>', from_email)
@@ -122,6 +133,54 @@ def lambda_handler(event, context):
             sender_email = email_match.group(1)
         else:
             sender_email = from_email.strip()
+        
+        # Extract all recipients for reply-all functionality
+        service_addresses = {'digitizer@seminalcapital.net', 'nanodrop@seminalcapital.net', 
+                            'nanodrop-dev@seminalcapital.net'}
+        
+        # Extract To recipients (multiple recipients in To field)
+        to_recipients = []
+        to_header = msg.get('To') or msg.get('to')
+        if to_header:
+            # Parse To header which can contain multiple emails
+            to_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', to_header)
+            # Filter out our service addresses to prevent loops
+            to_recipients = [addr for addr in to_emails if addr not in service_addresses]
+            if to_recipients:
+                logger.info("To recipients extracted", to_count=len(to_recipients), to_recipients=to_recipients)
+        
+        # Extract CC recipients
+        cc_recipients = []
+        cc_header = msg.get('CC') or msg.get('Cc') or msg.get('cc')
+        if cc_header:
+            # Parse CC header which can contain multiple emails
+            cc_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', cc_header)
+            # Filter out our service addresses to prevent loops
+            cc_recipients = [addr for addr in cc_emails if addr not in service_addresses]
+            if cc_recipients:
+                logger.info("CC recipients extracted", cc_count=len(cc_recipients), cc_recipients=cc_recipients)
+        
+        # Combine all recipients and remove duplicates
+        # Start with sender, add To recipients, then CC recipients
+        all_recipients = [sender_email]
+        all_recipients.extend(to_recipients)
+        all_recipients.extend(cc_recipients)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_recipients = []
+        for addr in all_recipients:
+            if addr not in seen:
+                seen.add(addr)
+                unique_recipients.append(addr)
+        
+        # Remove the sender from additional recipients (they're already first)
+        additional_recipients = unique_recipients[1:] if len(unique_recipients) > 1 else []
+        
+        if additional_recipients:
+            logger.info("All additional recipients", 
+                       additional_count=len(additional_recipients), 
+                       additional_recipients=additional_recipients)
         
         # Set user context for logging
         logger.set_user_context(from_email, subject)
@@ -185,12 +244,12 @@ def lambda_handler(event, context):
         for i, image_data in enumerate(image_attachments, 1):
             try:
                 logger.info("Processing image", image_number=i, total_images=len(image_attachments))
-                nanodrop_data = extract_nanodrop_data(image_data)
-                results_list.append(nanodrop_data)
+                lab_data = extract_lab_data(image_data)
+                results_list.append(lab_data)
                 processed_images.append(image_data)
                 
                 # Log successful image processing
-                samples_in_image = len(nanodrop_data.get('samples', []))
+                samples_in_image = len(lab_data.get('samples', []))
                 logger.image_processed(
                     image_number=i,
                     total_images=len(image_attachments),
@@ -251,7 +310,7 @@ def lambda_handler(event, context):
             return {'statusCode': 200, 'body': 'No data extracted'}
         
         # Merge results using LLM intelligence (with fixed fallback)
-        combined_data = merge_nanodrop_results(results_list)
+        combined_data = merge_lab_results(results_list)
         
         # Count total samples extracted
         total_samples = len(combined_data.get('samples', []))
@@ -298,8 +357,8 @@ def lambda_handler(event, context):
         s3.put_object(Bucket=bucket, Key=csv_key, Body=csv_content, ContentType='text/csv')
         logger.info("CSV data saved", debug_csv_key=csv_key)
         
-        # Send reply with CSV and original photos
-        send_success_email(from_email, csv_content, combined_data, processed_images)
+        # Send reply with CSV and original photos (including all recipients)
+        send_success_email(unique_recipients, csv_content, combined_data, processed_images)
         
         # Calculate processing time
         processing_time_ms = int((time.time() - processing_start_time) * 1000)
@@ -385,7 +444,7 @@ def extract_images_from_email(msg):
     return images
 
 
-def extract_nanodrop_data(image_bytes):
+def extract_lab_data(image_bytes):
     """Extract data from lab instrument image using GPT-4o - simplified universal approach."""
     # Encode image to base64
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
@@ -490,7 +549,7 @@ def extract_nanodrop_data(image_bytes):
         raise Exception(f"Invalid response format from AI model")
 
 
-def merge_nanodrop_results(results_list):
+def merge_lab_results(results_list):
     """Merge results from multiple images using LLM intelligence."""
     if len(results_list) == 1:
         return results_list[0]
@@ -748,10 +807,13 @@ def generate_csv(data):
         # Plate format - well positions and values
         headers = ['Well', 'Value', 'Quality Assessment', 'Assay Type']
     elif 'columns' in data:
-        # New simplified format - use detected columns as headers
-        headers = data['columns']
-        # Add quality and assay columns
-        headers.extend(['Quality Assessment', 'Assay Type'])
+        # New simplified format - use all columns from GPT response
+        if first_sample:
+            # Use all keys from the first sample as headers (GPT extracted everything)
+            headers = list(first_sample.keys())
+        else:
+            # Fallback to GPT's column list
+            headers = data['columns'][:]
     elif 'long_form_data' in data:
         # Complex format (old flexible format)
         headers = ['Sample ID']
@@ -810,20 +872,12 @@ def generate_csv(data):
             row = []
             
             if 'columns' in data:
-                # New simplified format - extract values in column order
-                for col in data['columns']:
-                    row.append(sample.get(col, ''))
-                
-                # Try to assess quality if we have the right columns
-                quality = 'Check manually'
-                try:
-                    if 'A260/A280' in sample and 'A260/A230' in sample:
-                        a260_a280 = float(sample['A260/A280'])
-                        a260_a230 = float(sample['A260/A230'])
-                        concentration = float(sample.get('Concentration', sample.get('ng/uL', 0)))
-                        quality = assess_quality(a260_a280, a260_a230, concentration)
-                except (ValueError, TypeError, KeyError):
-                    pass
+                # New simplified format - extract all values in header order (no calculation)
+                for header in headers:
+                    row.append(sample.get(header, ''))
+                # All data including quality is already in the row, no need to append extra
+                writer.writerow(row)
+                continue
                 
             elif 'long_form_data' in data:
                 # Complex format (old flexible format)
@@ -841,13 +895,8 @@ def generate_csv(data):
                 if 'A260/A230' in headers:
                     row.append(a260_a230)
                 
-                # Quality assessment
-                quality = 'Insufficient data'
-                if concentration and a260_a280 and a260_a230:
-                    try:
-                        quality = assess_quality(float(a260_a280), float(a260_a230), float(concentration))
-                    except (ValueError, TypeError):
-                        quality = 'Check values'
+                # Use quality from data if available, otherwise mark for manual check
+                quality = sample.get('quality', sample.get('Quality Assessment', 'Check manually'))
             else:
                 # Legacy format
                 row = [
@@ -857,10 +906,8 @@ def generate_csv(data):
                     sample.get('a260_a230', '')
                 ]
                 
-                try:
-                    quality = assess_quality(sample['a260_a280'], sample['a260_a230'], sample['concentration'])
-                except (KeyError, TypeError):
-                    quality = 'Check values'
+                # Use quality from data if available, otherwise mark for manual check
+                quality = sample.get('quality', sample.get('Quality Assessment', 'Check manually'))
             
             row.append(quality)
             row.append(assay_type)
@@ -900,43 +947,31 @@ def compress_image_for_email(image_data, max_size_kb=2000):
         return image_data
 
 
-def assess_quality(ratio_260_280, ratio_260_230, concentration):
-    """Simple quality assessment based on ratios and concentration."""
-    issues = []
-    
-    # Check for negative/problematic values
-    if concentration < 0:
-        issues.append("Invalid negative concentration")
-    elif concentration < 5:
-        issues.append("Very low concentration")
-    
-    if ratio_260_280 < 0 or ratio_260_230 < 0:
-        issues.append("Invalid negative ratios")
-    elif ratio_260_280 < 1.6:
-        issues.append("Possible protein contamination")
-    elif ratio_260_280 > 2.5:
-        issues.append("Possible RNA degradation or contamination")
-    
-    if ratio_260_230 < 1.5:
-        issues.append("Possible organic contamination")
-    elif ratio_260_230 > 3.0:
-        issues.append("Unusually high 260/230")
-    
-    return "; ".join(issues) if issues else "Good quality"
 
-
-def send_success_email(to_email, csv_content, data, original_images):
-    """Send email with CSV attachment and original photos."""
+def send_success_email(recipients, csv_content, data, original_images):
+    """Send email with CSV attachment and original photos to multiple recipients."""
     msg = MIMEMultipart()
+    
+    # Handle both single email (legacy) and list of emails (new CC feature)
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    
+    primary_recipient = recipients[0]  # First is always the original sender
+    cc_recipients = recipients[1:] if len(recipients) > 1 else []
     
     assay_type = data.get('assay_type', 'Unknown')
     sample_count = len(data['samples'])
     commentary = data.get('commentary', 'No additional analysis provided.')
     image_count = len(original_images) if isinstance(original_images, list) else 1
     
-    msg['Subject'] = f'Nanodrop Results - {assay_type} Analysis ({sample_count} samples, {image_count} images)'
-    msg['From'] = 'nanodrop@seminalcapital.net'
-    msg['To'] = to_email
+    msg['Subject'] = f'Lab Data Results - {assay_type} Analysis ({sample_count} samples, {image_count} images)'
+    msg['From'] = 'digitizer@seminalcapital.net'
+    msg['To'] = primary_recipient
+    msg['X-Lab-Data-Processed'] = 'true'  # Loop prevention header
+    
+    # Add CC header if there are CC recipients
+    if cc_recipients:
+        msg['CC'] = ', '.join(cc_recipients)
     
     # Check if this is plate format
     is_plate_format = data.get('is_plate_format', False) or \
@@ -970,7 +1005,7 @@ Data Preview (first 5 wells):
         if sample_count > 5:
             body += f"    ... and {sample_count - 5} more wells (see CSV for complete data)\n"
     else:
-        # Standard nanodrop format with full details
+        # Standard format with full details
         body = f"""Your lab data has been digitized successfully!
 
 Assay Type: {assay_type}
@@ -1052,10 +1087,11 @@ Lab Data Digitization Service
         )
         msg.attach(img_attachment)
     
-    # Send email
+    # Send email to all recipients (To + CC)
+    all_destinations = recipients  # This already includes primary + CC recipients
     ses.send_raw_email(
         Source=msg['From'],
-        Destinations=[to_email],
+        Destinations=all_destinations,
         RawMessage={'Data': msg.as_string()}
     )
 
@@ -1063,24 +1099,24 @@ Lab Data Digitization Service
 def send_error_email(to_email, error_message):
     """Send error notification email."""
     ses.send_email(
-        Source='nanodrop@seminalcapital.net',
+        Source='digitizer@seminalcapital.net',
         Destination={'ToAddresses': [to_email]},
         Message={
-            'Subject': {'Data': 'Nanodrop Processing Error'},
+            'Subject': {'Data': 'Lab Data Processing Error'},
             'Body': {
                 'Text': {
                     'Data': f"""
-                    Sorry, we couldn't process your Nanodrop image.
+                    Sorry, we couldn't process your lab instrument image.
                     
                     Error: {error_message}
                     
                     Please ensure:
-                    - You attached a clear photo of the Nanodrop screen
+                    - You attached a clear photo of the instrument screen
                     - The entire screen is visible
                     - The image is in JPEG or PNG format
                     
                     --
-                    Nanodrop Processing Service
+                    Lab Data Digitization Service
                     """
                 }
             }
