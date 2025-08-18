@@ -45,10 +45,16 @@ htmlcov/
 *.tmp
 *.temp
 temp_*
-test_*
+debug_*
 extracted_data.json
 latest_*.csv
 latest_*.json
+*.json
+*.csv
+result_*.json
+*_result.json
+test_result*.json
+downloaded_*.csv
 
 # Build artifacts
 dist/
@@ -63,3 +69,13 @@ trust-policy.json
 lambda-policy.json
 notification.json
 bucket-policy.json
+
+# Email debugging
+debug_emails/
+saved_emails/
+downloaded_emails/
+
+# mypy cache
+.mypy_cache/
+.dmypy.json
+dmypy.json

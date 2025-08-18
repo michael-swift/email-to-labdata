@@ -1,13 +1,16 @@
 # Nanodrop Processor - Development Workflow
 # Usage: make <target>
 
-.PHONY: help dev-test prod-deploy accuracy-check logs live-test debug-last tail-logs
+.PHONY: help install test test-cc dev-test prod-deploy accuracy-check logs live-test debug-last tail-logs
 
 # Default target
 help:
 	@echo "🧬 Nanodrop Processor - Available Commands:"
 	@echo ""
 	@echo "  📧 Quick Testing:"
+	@echo "    make install       - Install development dependencies"
+	@echo "    make test          - Run unit tests with coverage"
+	@echo "    make test-cc       - Test CC/reply-all functionality"
 	@echo "    make dev-test      - Deploy to dev + send test email + check results"
 	@echo "    make live-test     - Interactive testing loop"
 	@echo "    make test-suite    - Test all instrument types"
@@ -30,6 +33,29 @@ help:
 	@echo "  🧹 Maintenance:"
 	@echo "    make clean         - Clean up temporary files"
 	@echo "    make status        - Show git status and AWS resources"
+
+# Install development dependencies
+install:
+	@echo "📦 Installing development dependencies..."
+	pip install -r requirements-dev.txt
+	@echo "✅ Dependencies installed!"
+
+# Run unit tests with coverage
+test:
+	@echo "🧪 Running unit tests with coverage..."
+	python scripts/check_coverage.py
+	@echo "✅ Tests complete!"
+
+# Test CC/reply-all functionality
+test-cc:
+	@echo "📧 Testing CC/reply-all functionality..."
+	@echo "1️⃣  Testing multiple To recipients..."
+	python scripts/send_test_email.py --digitizer --to test+cc@seminalcapital.net --image tests/fixtures/test_images/plate_reader_96well.jpg
+	@echo "2️⃣  Testing traditional CC..."
+	python scripts/send_test_email.py --digitizer --cc test+cc@seminalcapital.net --image tests/fixtures/test_images/plate_reader_96well.jpg
+	@echo "3️⃣  Testing loop prevention..."
+	python scripts/send_test_email.py --digitizer --cc digitizer@seminalcapital.net --to test+safe@seminalcapital.net --image tests/fixtures/test_images/plate_reader_96well.jpg
+	@echo "✅ CC tests sent! Check logs in 60 seconds: make logs"
 
 # Quick development testing workflow
 dev-test:

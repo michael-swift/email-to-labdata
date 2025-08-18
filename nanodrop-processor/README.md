@@ -102,18 +102,20 @@ make install
 # Run all tests
 make test
 
-# Run specific test types
-./run_tests.sh -t unit         # Unit tests only
-./run_tests.sh -t image        # Image processing tests
-./run_tests.sh -t llm          # LLM mock tests
-./run_tests.sh -t validation   # Data validation tests
+# Test CC/reply-all functionality
+make test-cc
 
-# Run with coverage
-./run_tests.sh -c
+# Deploy and test in dev environment
+make dev-test
 
-# Run with verbose output
-./run_tests.sh -v
+# Check logs
+make logs
+
+# Clean up temporary files
+make clean
 ```
+
+See `make help` for all available commands and `CLAUDE.md` for quick reference.
 
 ## Project Structure
 
