@@ -76,6 +76,8 @@ nanodrop-processor/
 The system includes comprehensive security:
 - Rate limiting (3/hour, 10/day per user)
 - Input validation (file size, type, content)
+- Loop prevention (service address filtering, result email detection)
+- CC/reply-all functionality with robust recipient validation
 - DynamoDB tracking for rate limits
 - Error sanitization to prevent info leakage
 - Secure IAM policy with minimal permissions

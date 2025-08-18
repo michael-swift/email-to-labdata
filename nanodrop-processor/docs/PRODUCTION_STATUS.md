@@ -4,7 +4,8 @@
 
 **Initial Deployment**: June 7, 2025  
 **Security Update**: June 8, 2025  
-**Email**: nanodrop@seminalcapital.net  
+**CC/Reply-All Feature**: August 15, 2025  
+**Primary Email**: digitizer@seminalcapital.net  
 **Processing**: Automated via AWS Lambda + GPT-4o + Security Layer
 
 ## ✅ Verified Components
@@ -18,7 +19,8 @@
 | CSV Generation | ✅ Working | Data extraction & formatting |
 | Email Reply | ✅ Working | SES sends response with CSV |
 | Multi-Image Support | ✅ Working | Process & merge multiple images |
-| Security Layer | ✅ Working | Rate limiting & validation |
+| CC/Reply-All Feature | ✅ Working | Multiple recipients via To/CC fields |
+| Security Layer | ✅ Working | Rate limiting, validation & loop prevention |
 | DynamoDB Tracking | ✅ Working | Auto-created rate limit table |
 
 ## 📊 Performance Metrics
@@ -60,6 +62,7 @@ aws logs tail /aws/lambda/nanodrop-processor --follow
 
 - **Rate Limiting**: 3 requests/hour, 10/day per user
 - **Input Validation**: File size/type checks, image content validation
+- **Loop Prevention**: Service address filtering, result email detection
 - **Abuse Prevention**: Blocked email patterns, burst protection
 - **Cost Protection**: Daily OpenAI spend limits
 - **Error Sanitization**: No sensitive data in error messages

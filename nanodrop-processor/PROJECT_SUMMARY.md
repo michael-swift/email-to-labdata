@@ -21,8 +21,9 @@ A simple email automation tool that helps researchers digitize their lab equipme
 - **Universal instrument support** - Handles any lab equipment with tabular data
 - **Multi-image processing** - Handle multiple photos in one email
 - **Intelligent format detection** - Automatically identifies instrument type and data structure
+- **Reply-all functionality** - Send results to multiple recipients via To/CC fields
 - **Quality assessment** - Smart validation and quality indicators
-- **Security** - Rate limiting (3/hour, 10/day) and input validation
+- **Security** - Rate limiting (3/hour, 10/day), input validation, and loop prevention
 - **ASCII-safe output** - Clean CSV format without encoding issues
 
 ## Technical Status

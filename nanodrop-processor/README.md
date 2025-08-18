@@ -32,6 +32,29 @@ User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
 - **`nanodrop@seminalcapital.net`** - Legacy address (still works)
 - **`nanodrop-dev@seminalcapital.net`** - Development testing
 
+## Reply-All and CC Support
+
+Send results to multiple recipients using any of these methods:
+
+**Multiple To Recipients** (phone-friendly):
+```
+To: digitizer@seminalcapital.net, colleague@example.com
+```
+
+**Traditional CC**:
+```
+To: digitizer@seminalcapital.net
+CC: colleague@example.com
+```
+
+**Combined approach**:
+```
+To: digitizer@seminalcapital.net, colleague1@example.com
+CC: colleague2@example.com
+```
+
+All recipients receive the complete results including CSV file and original images. Perfect for sharing lab data with team members, supervisors, or collaborators.
+
 ## Deployment
 
 ### Prerequisites
@@ -133,9 +156,10 @@ The Lambda function (`src/lambda_function.py`) handles:
 - **Universal Instrument Support**: GPT-4o vision API for any lab equipment data extraction  
 - **Multi-Image Support**: Process multiple images with intelligent merging
 - **Intelligent Format Detection**: Automatic recognition of instrument types and data formats
+- **Reply-All Functionality**: Send results to multiple recipients via To/CC fields with loop prevention
 - **Quality Assessment**: Smart data validation and quality indicators
 - **CSV Export**: Formatted results with quality indicators and AI commentary
-- **Security Hardening**: Rate limiting (3/hour, 10/day), input validation
+- **Security Hardening**: Rate limiting (3/hour, 10/day), input validation, loop prevention
 - **Error Handling**: Graceful failures with user notifications
 
 ## AWS Resources Required
@@ -158,6 +182,10 @@ OPENAI_API_KEY=sk-...  # Required for GPT-4o API access
 ```bash
 # Test locally without AWS
 python3 tests/test_lambda_local.py
+
+# Test CC/reply-all functionality
+python scripts/send_test_email.py --digitizer --to colleague@example.com --image path/to/image.jpg
+python scripts/send_test_email.py --digitizer --cc colleague@example.com --image path/to/image.jpg
 
 # Run full test suite
 make test

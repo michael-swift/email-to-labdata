@@ -1,17 +1,23 @@
-# Nanodrop Testing Scripts
+# Lab Data Digitization Testing Scripts
 
 ## Quick Start
 
 ### Send a single test email:
 ```bash
-# To development (default)
-python scripts/send_test_email.py --image images/test_plate_reader.png
+# To primary digitizer address
+python scripts/send_test_email.py --digitizer --image images/test_plate_reader.png
 
-# To production
-python scripts/send_test_email.py --prod --image images/nanodrop_screenshot.png
+# Test CC/reply-all functionality
+python scripts/send_test_email.py --digitizer --cc colleague@example.com --image images/test_plate_reader.png
+
+# Test multiple To recipients (phone-friendly)
+python scripts/send_test_email.py --digitizer --to colleague@example.com --image images/test_plate_reader.png
+
+# To development environment
+python scripts/send_test_email.py --dev --image images/nanodrop_screenshot.png
 
 # Auto-detect test image
-python scripts/send_test_email.py --dev
+python scripts/send_test_email.py --digitizer
 ```
 
 ### Run full test pipeline:
@@ -32,10 +38,18 @@ python scripts/test_email_pipeline.py --images images/plate1.png images/plate2.p
 ## Scripts
 
 ### `send_test_email.py`
-Sends individual test emails to the Nanodrop processor.
+Sends individual test emails to the lab data digitization service.
 
-**Options:**
-- `--dev` / `--prod` - Choose environment (default: prod)
+**Environment Options:**
+- `--digitizer` - Send to primary service (digitizer@seminalcapital.net)
+- `--dev` - Send to development environment (nanodrop-dev@seminalcapital.net)
+- `--prod` - Send to legacy production (nanodrop@seminalcapital.net)
+
+**CC/Reply-All Options:**
+- `--to EMAIL` - Add additional To recipient (can be used multiple times)
+- `--cc EMAIL` - Add CC recipient (can be used multiple times)
+
+**Email Options:**
 - `--image PATH` - Attach specific image
 - `--from EMAIL` - Set from address (default: test@seminalcapital.net)
 - `--subject TEXT` - Custom subject
@@ -60,6 +74,9 @@ Runs comprehensive tests across multiple images with automated log checking.
 ## Examples
 
 ```bash
+# Test CC functionality
+python scripts/send_test_email.py --digitizer --cc colleague@example.com --to supervisor@example.com
+
 # Development testing workflow
 python scripts/test_email_pipeline.py --env dev
 
@@ -68,6 +85,9 @@ python scripts/test_email_pipeline.py --env prod --quick
 
 # Test specific problematic image
 python scripts/send_test_email.py --dev --image images/uv_vis_problem.png
+
+# Test loop prevention (should filter out service address)
+python scripts/send_test_email.py --digitizer --cc digitizer@seminalcapital.net --to colleague@example.com
 
 # Full production validation (careful!)
 python scripts/test_email_pipeline.py --env prod --delay 10
@@ -78,5 +98,7 @@ python scripts/test_email_pipeline.py --env prod --delay 10
 - The scripts use AWS SES to send emails
 - Requires AWS credentials configured (`aws configure`)
 - Test images should be in `images/` directory
+- Primary service: `digitizer@seminalcapital.net`
 - Development emails go to `nanodrop-dev@seminalcapital.net`
-- Production emails go to `nanodrop@seminalcapital.net`
+- Legacy production: `nanodrop@seminalcapital.net`
+- CC/reply-all functionality automatically filters out service addresses to prevent loops
