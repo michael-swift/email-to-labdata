@@ -65,17 +65,62 @@ class SecurityConfig:
         self._ensure_rate_limit_table()
 
     def _ensure_rate_limit_table(self):
-        """Attempt to load existing rate limit table; fail open if unavailable."""
+        """Ensure DynamoDB table exists for rate limiting."""
         try:
+            table = self.dynamodb.Table(self.table_name)
+            table.load()
+            self.rate_table = table
+            return
+        except Exception:
+            pass  # Attempt to create below
+
+        try:
+            self._create_rate_limit_table()
             table = self.dynamodb.Table(self.table_name)
             table.load()
             self.rate_table = table
         except Exception as e:
             self.rate_table = None
             print(
-                f"Warning: Rate limiting table {self.table_name} unavailable: {e}."
+                f"Warning: Could not initialize rate limiting table {self.table_name}: {e}."
                 " Rate limiting disabled."
             )
+
+    def _create_rate_limit_table(self):
+        """Create DynamoDB table for rate limiting."""
+        table = self.dynamodb.create_table(
+            TableName=self.table_name,
+            KeySchema=[
+                {
+                    'AttributeName': 'email_hash',
+                    'KeyType': 'HASH'
+                }
+            ],
+            AttributeDefinitions=[
+                {
+                    'AttributeName': 'email_hash',
+                    'AttributeType': 'S'
+                }
+            ],
+            BillingMode='PAY_PER_REQUEST'
+        )
+
+        # Wait for table to be created
+        table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
+
+        # Enable TTL after table creation (for compatibility)
+        try:
+            table.meta.client.update_time_to_live(
+                TableName=self.table_name,
+                TimeToLiveSpecification={
+                    'AttributeName': 'expiration_time',
+                    'Enabled': True
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Could not enable TTL: {e}")
+
+        self.rate_table = table
     
     def validate_email_sender(self, from_email: str) -> Dict[str, any]:
         """Enhanced email validation - check for reputable domains."""
@@ -113,8 +158,21 @@ class SecurityConfig:
     
     def check_rate_limit(self, from_email: str) -> Dict[str, any]:
         """Enhanced rate limiting with burst protection."""
-        # If rate limiting table is not available, allow all requests
+        # If rate limiting table is not available, log warning and allow requests
         if self.rate_table is None:
+            print(f"WARNING: Rate limiting disabled - table {self.table_name} not available")
+            # Log metric to CloudWatch
+            try:
+                self.cloudwatch.put_metric_data(
+                    Namespace='NanodropProcessor',
+                    MetricData=[{
+                        'MetricName': 'RateLimitingDisabled',
+                        'Value': 1,
+                        'Unit': 'Count'
+                    }]
+                )
+            except Exception:
+                pass
             return {'allowed': True, 'reason': 'Rate limiting unavailable', 'retry_after': 0}
         
         email_hash = hashlib.sha256(from_email.lower().encode()).hexdigest()
