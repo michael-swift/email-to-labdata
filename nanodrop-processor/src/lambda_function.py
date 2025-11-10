@@ -40,25 +40,6 @@ TABLE_PREFIX = os.environ.get('TABLE_PREFIX', '')
 security = SecurityConfig(table_prefix=TABLE_PREFIX)
 db_manager = DynamoDBManager(table_prefix=TABLE_PREFIX)
 
-# ASCII art header for email body
-ASCII_HEADER = r"""
- ___       ________  ________          ________  ________  _________  ________
-|\  \     |\   __  \|\   __  \        |\   ___ \|\   __  \|\___   ___\\   __  \
-\ \  \    \ \  \|\  \ \  \|\ /_       \ \  \_|\ \ \  \|\  \|___ \  \_\ \  \|\  \
- \ \  \    \ \   __  \ \   __  \       \ \  \ \\ \ \   __  \   \ \  \ \ \   __  \
-  \ \  \____\ \  \ \  \ \  \|\  \       \ \  \_\\ \ \  \ \  \   \ \  \ \ \  \ \  \
-   \ \_______\ \__\ \__\ \_______\       \ \_______\ \__\ \__\   \ \__\ \ \__\ \__\
-    \|_______|\|__|\|__|\|_______|        \|_______|\|__|\|__|    \|__|  \|__|\|__|
-
- ________  ___  ________  ___  _________  ___  ________  _______   ________
-|\   ___ \|\  \|\   ____\|\  \|\___   ___\\  \|\_____  \|\  ___ \ |\   __  \
-\ \  \_|\ \ \  \ \  \___|\ \  \|___ \  \_\ \  \\|___/  /\ \   __/|\ \  \|\  \
- \ \  \ \\ \ \  \ \  \  __\ \  \   \ \  \ \ \  \   /  / /\ \  \_|/_\ \   _  _\
-  \ \  \_\\ \ \  \ \  \|\  \ \  \   \ \  \ \ \  \ /  /_/__\ \  \_|\ \ \  \\  \|
-   \ \_______\ \__\ \_______\ \__\   \ \__\ \ \__\\________\ \_______\ \__\\ _\
-    \|_______|\|__|\|_______|\|__|    \|__|  \|__|\|_______|\|_______|\|__|\|__|
-"""
-
 def get_openai_client():
     """Get or create OpenAI client."""
     global openai_client
@@ -1005,9 +986,7 @@ def send_success_email(recipients, csv_content, data, original_images):
     
     # Email body - simplified for plate readers
     if is_plate_format:
-        body = f"""{ASCII_HEADER}
-
-Your lab data has been digitized successfully!
+        body = f"""Your lab data has been digitized successfully!
 
 Instrument Type: {data.get('instrument', assay_type)}
 Format: 96-well plate
@@ -1027,9 +1006,7 @@ Data Preview (first 5 wells):
             body += f"    ... and {sample_count - 5} more wells (see CSV for complete data)\n"
     else:
         # Standard format with full details
-        body = f"""{ASCII_HEADER}
-
-Your lab data has been digitized successfully!
+        body = f"""Your lab data has been digitized successfully!
 
 Assay Type: {assay_type}
 Images Processed: {image_count}
