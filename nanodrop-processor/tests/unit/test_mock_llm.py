@@ -204,7 +204,7 @@ class TestMockLLMExtraction:
                 assert any(expected_error in error for error in errors)
     
     @pytest.mark.unit
-    def test_mock_different_nanodrop_models(self, mock_extractor):
+    def test_mock_different_nanodrop_models(self, mock_extractor, sample_image_bytes):
         """Test extraction from different Nanodrop models."""
         # Different models might have different screen layouts
         model_responses = {
@@ -224,8 +224,8 @@ class TestMockLLMExtraction:
                 "unit": "ng/μL"
             }
         }
-        
+
         for model, expected_response in model_responses.items():
             # In real implementation, different images would trigger different responses
-            result = mock_extractor.extract_nanodrop_data(b"test_image")
+            result = mock_extractor.extract_nanodrop_data(sample_image_bytes)
             assert "concentration" in result

@@ -59,18 +59,19 @@ class TestCSVGeneration:
                 {
                     '#': '1',
                     'ng/uL': '17.4',
-                    'A260/A280': '1.86', 
+                    'A260/A280': '1.86',
                     'A260/A230': '2.21'
                 }
             ]
         }
-        
+
         csv_output = generate_csv(data)
         lines = [line.rstrip('\r') for line in csv_output.strip().split('\n')]
-        
-        # Header should keep # as GPT returned it
-        assert '#,ng/uL,A260/A280,A260/A230' in lines[0]
-        assert lines[1] == '1,17.4,1.86,2.21'
+
+        # Header should keep # as GPT returned it, plus auto-added Quality Assessment and Assay Type
+        assert lines[0] == '#,ng/uL,A260/A280,A260/A230,Quality Assessment,Assay Type'
+        # Data row should include default quality and assay type values
+        assert lines[1] == '1,17.4,1.86,2.21,Check manually,Unknown'
     
     def test_plate_format(self):
         """Test 96-well plate format."""
@@ -112,13 +113,13 @@ class TestCSVGeneration:
                 }
             ]
         }
-        
+
         csv_output = generate_csv(data)
         lines = [line.rstrip('\r') for line in csv_output.strip().split('\n')]
-        
-        # Check header
-        assert lines[0] == 'Sample ID,Concentration (ng/uL),A260/A280,A260/A230,Quality Assessment,Assay Type'
-        
+
+        # Legacy format is detected as nanodrop-like, so uses "Sample Number" header
+        assert lines[0] == 'Sample Number,Concentration (ng/uL),A260/A280,A260/A230,Quality Assessment,Assay Type'
+
         # Check data row
         assert '1,17.4,1.86,2.21,' in lines[1]
     
@@ -166,22 +167,23 @@ class TestCSVGeneration:
             'samples': [
                 {
                     'Sample': '1',
-                    'ng/uL': '17.4', 
+                    'ng/uL': '17.4',
                     'A260/A280': '1.86'
                     # No Quality Assessment or Assay Type
                 }
             ]
         }
-        
+
         csv_output = generate_csv(data)
         lines = [line.rstrip('\r') for line in csv_output.strip().split('\n')]
-        
-        # Should handle missing values gracefully
+
+        # Should handle missing values gracefully by adding default quality and assay type
         assert len(lines) >= 2
-        assert lines[1] == '1,17.4,1.86'  # Should not append undefined variables
+        assert lines[0] == 'Sample,ng/uL,A260/A280,Quality Assessment,Assay Type'
+        assert lines[1] == '1,17.4,1.86,Check manually,Unknown'
     
     def test_mixed_data_types(self):
-        """Test samples with mixed data types (numbers, strings, empty).""" 
+        """Test samples with mixed data types (numbers, strings, empty)."""
         data = {
             'columns': ['Sample', 'Concentration', 'Notes'],
             'samples': [
@@ -197,13 +199,14 @@ class TestCSVGeneration:
                 }
             ]
         }
-        
+
         csv_output = generate_csv(data)
         lines = [line.rstrip('\r') for line in csv_output.strip().split('\n')]
-        
-        # Should convert all values to strings safely
-        assert lines[1] == '1,17.4,Good'
-        assert lines[2] == '2,,'  # Empty and None should become empty strings
+
+        # Should convert all values to strings safely and append quality/assay type
+        assert lines[0] == 'Sample,Concentration,Notes,Quality Assessment,Assay Type'
+        assert lines[1] == '1,17.4,Good,Check manually,Unknown'
+        assert lines[2] == '2,,,Check manually,Unknown'  # Empty and None should become empty strings
 
 
 if __name__ == '__main__':

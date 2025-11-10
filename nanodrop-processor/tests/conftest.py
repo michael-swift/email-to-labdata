@@ -106,15 +106,22 @@ def mock_redis_client():
 @pytest.fixture
 def sample_image_bytes():
     """Generate a simple test image."""
-    from PIL import Image
+    from PIL import Image, ImageDraw
     import io
-    
-    # Create a simple test image
+
+    # Create a simple test image with some content (to ensure size > 10KB for tests)
     img = Image.new('RGB', (800, 600), color='white')
-    
+    draw = ImageDraw.Draw(img)
+
+    # Add some visual content to increase file size
+    for i in range(0, 800, 20):
+        draw.line([(i, 0), (i, 600)], fill='lightgray', width=1)
+    for i in range(0, 600, 20):
+        draw.line([(0, i), (800, i)], fill='lightgray', width=1)
+
     # Convert to bytes
     img_bytes = io.BytesIO()
-    img.save(img_bytes, format='JPEG')
+    img.save(img_bytes, format='JPEG', quality=95)
     return img_bytes.getvalue()
 
 
