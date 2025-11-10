@@ -118,7 +118,7 @@ MULTI_IMAGE_SCENARIOS = {
 
 # Expected CSV format for each image
 EXPECTED_CSV_FORMAT = {
-    "headers": ['Sample Number', 'Concentration (ng/μL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type'],
+    "headers": ['Sample Number', 'Concentration (ng/uL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type'],
     "sample_row_example": [1, 87.3, 1.94, 2.07, 'Good quality', 'RNA']
 }
 

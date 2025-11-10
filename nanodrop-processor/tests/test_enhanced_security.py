@@ -77,7 +77,7 @@ class TestEnhancedSecurity(unittest.TestCase):
     def test_image_size_validation(self):
         """Test image size limits."""
         # Create oversized image data (simulate large file)
-        large_data = b'\xff\xd8' + b'x' * (12 * 1024 * 1024)  # 12MB with JPEG magic
+        large_data = b'\xff\xd8' + b'x' * (25 * 1024 * 1024)  # 25MB with JPEG magic
         
         result = self.security.validate_image_content(large_data)
         self.assertFalse(result['valid'])

@@ -16,8 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 class TestLoopPreventionIntegration:
     """Test loop prevention in full Lambda handler context."""
     
-    @patch('lambda_function.s3')
-    @patch('lambda_function.logger')
+    @patch('src.lambda_function.s3')
+    @patch('src.lambda_function.logger')
     def test_results_email_ignored(self, mock_logger, mock_s3):
         """Test that results emails are ignored to prevent loops."""
         from lambda_function import lambda_handler
@@ -40,7 +40,7 @@ This is a results email that should be ignored.
             'Records': [{
                 's3': {
                     'bucket': {'name': 'test-bucket'},
-                    'object': {'key': 'test-key'}
+                    'object': {'key': 'test-key', 'size': 1024}
                 }
             }]
         }
@@ -62,8 +62,8 @@ This is a results email that should be ignored.
             from_email="user@example.com"
         )
     
-    @patch('lambda_function.s3')
-    @patch('lambda_function.logger')
+    @patch('src.lambda_function.s3')
+    @patch('src.lambda_function.logger')
     def test_service_sender_ignored(self, mock_logger, mock_s3):
         """Test that emails from service addresses are ignored."""
         from lambda_function import lambda_handler
@@ -85,7 +85,7 @@ This email is from our service and should be ignored.
             'Records': [{
                 's3': {
                     'bucket': {'name': 'test-bucket'},
-                    'object': {'key': 'test-key'}
+                    'object': {'key': 'test-key', 'size': 1024}
                 }
             }]
         }
@@ -100,8 +100,8 @@ This email is from our service and should be ignored.
         assert result['statusCode'] == 200
         assert result['body'] == 'Results email ignored'
     
-    @patch('lambda_function.s3')
-    @patch('lambda_function.logger')
+    @patch('src.lambda_function.s3')
+    @patch('src.lambda_function.logger')
     def test_processed_header_ignored(self, mock_logger, mock_s3):
         """Test that emails with our processing header are ignored."""
         from lambda_function import lambda_handler
@@ -124,7 +124,7 @@ This email was already processed and should be ignored.
             'Records': [{
                 's3': {
                     'bucket': {'name': 'test-bucket'},
-                    'object': {'key': 'test-key'}
+                    'object': {'key': 'test-key', 'size': 1024}
                 }
             }]
         }

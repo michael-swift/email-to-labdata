@@ -32,7 +32,14 @@ def run_coverage():
         print(result.stderr)
     
     print("\n📊 Coverage Report:")
-    print(result.stdout.split("-- Docs:")[0].split("---------- coverage:")[1] if "coverage:" in result.stdout else "Coverage report not found")
+    coverage_section = "Coverage report not found"
+    if "---------- coverage:" in result.stdout:
+        parts = result.stdout.split("---------- coverage:")
+        if len(parts) > 1:
+            coverage_section = parts[1]
+            if "-- Docs:" in coverage_section:
+                coverage_section = coverage_section.split("-- Docs:")[0]
+    print(coverage_section.strip())
     
     # Check if HTML coverage report was generated
     if os.path.exists("htmlcov/index.html"):

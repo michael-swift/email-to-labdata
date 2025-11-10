@@ -14,7 +14,6 @@ from email.mime.base import MIMEBase
 from email import encoders
 import base64
 from io import BytesIO
-import csv
 import openai
 from datetime import datetime
 import time
@@ -23,6 +22,15 @@ from PIL import Image
 from security_config import SecurityConfig
 from structured_logger import logger
 from dynamodb_schema import DynamoDBManager
+from services.csv_service import (
+    annotate_sample_quality as service_annotate_sample_quality,
+    generate_csv as service_generate_csv,
+    assess_quality as service_assess_quality,
+)
+from services.email_service import (
+    send_success_email as service_send_success_email,
+    send_error_email as service_send_error_email,
+)
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
@@ -39,6 +47,26 @@ TABLE_PREFIX = os.environ.get('TABLE_PREFIX', '')
 # Initialize security configuration and DynamoDB
 security = SecurityConfig(table_prefix=TABLE_PREFIX)
 db_manager = DynamoDBManager(table_prefix=TABLE_PREFIX)
+
+
+def assess_quality(a260_a280, a260_a230, concentration):
+    return service_assess_quality(a260_a280, a260_a230, concentration)
+
+
+def annotate_sample_quality(data):
+    return service_annotate_sample_quality(data)
+
+
+def generate_csv(data):
+    return service_generate_csv(data)
+
+
+def send_success_email(recipients, csv_content, data, original_images):
+    return service_send_success_email(ses, recipients, csv_content, data, original_images)
+
+
+def send_error_email(to_email, error_message):
+    return service_send_error_email(ses, to_email, error_message)
 
 def get_openai_client():
     """Get or create OpenAI client."""
@@ -767,358 +795,3 @@ def fallback_merge(results_list):
         'commentary': f"Processed {len(results_list)} images. " + " | ".join(all_commentary),
         'samples': unique_samples
     }
-
-
-def generate_csv(data):
-    """Generate CSV content from extracted data - flexible format."""
-    from io import StringIO
-    output = StringIO()
-    writer = csv.writer(output)
-    
-    # Handle multiple data formats
-    if 'samples' in data and isinstance(data['samples'], list):
-        # New simplified format or legacy format
-        samples = data['samples']
-        assay_type = data.get('assay_type', data.get('instrument', 'Unknown'))
-    elif 'long_form_data' in data:
-        # Complex flexible format
-        samples = data['long_form_data'].get('samples', [])
-        assay_type = data.get('assay_type_guess', 'Unknown')
-    else:
-        # No samples found
-        samples = []
-        assay_type = 'Unknown'
-    
-    if not samples:
-        # No samples found - return empty CSV with headers
-        writer.writerow(['Sample', 'Data', 'Note'])
-        writer.writerow(['No data', 'extracted', 'Please check image quality'])
-        return output.getvalue()
-    
-    # Determine CSV structure based on available data
-    first_sample = samples[0]
-    
-    # Check if this is plate format (samples have 'well' and 'value' OR columns are numbered)
-    is_plate_format = ('well' in first_sample and 'value' in first_sample) or \
-                     (data.get('is_plate_format', False)) or \
-                     ('columns' in data and all(str(col).isdigit() for col in data['columns'][:5]))
-    
-    if is_plate_format:
-        # Plate format - well positions and values
-        headers = ['Well', 'Value', 'Quality Assessment', 'Assay Type']
-    elif 'columns' in data:
-        # New simplified format - use all columns from GPT response
-        if first_sample:
-            # Use all keys from the first sample as headers (GPT extracted everything)
-            headers = list(first_sample.keys())
-        else:
-            # Fallback to GPT's column list
-            headers = data['columns'][:]
-    elif 'long_form_data' in data:
-        # Complex format (old flexible format)
-        headers = ['Sample ID']
-        if 'standardized_values' in first_sample:
-            std_vals = first_sample['standardized_values']
-            if 'concentration_ng_ul' in std_vals:
-                headers.append('Concentration (ng/uL)')
-            if 'a260_a280' in std_vals:
-                headers.append('A260/A280')
-            if 'a260_a230' in std_vals:
-                headers.append('A260/A230')
-        headers.extend(['Quality Assessment', 'Assay Type'])
-    else:
-        # Legacy format
-        headers = ['Sample ID', 'Concentration (ng/uL)', 'A260/A280', 'A260/A230', 'Quality Assessment', 'Assay Type']
-    
-    writer.writerow(headers)
-    
-    # Write data rows
-    if is_plate_format:
-        # For plate format, generate complete 96-well grid
-        # Create a mapping of extracted data
-        extracted_data = {}
-        for sample in samples:
-            if 'well' in sample and 'value' in sample:
-                extracted_data[sample['well']] = sample['value']
-            else:
-                # Fallback: reconstruct well position
-                sample_index = samples.index(sample)
-                row_letter = chr(ord('A') + (sample_index // 12))
-                col_number = (sample_index % 12) + 1
-                well = f"{row_letter}{col_number}"
-                value = sample.get('value', '')
-                if not value:
-                    for key, val in sample.items():
-                        if isinstance(val, (int, float)) and key not in ['sample_number', 'row', 'col']:
-                            value = val
-                            break
-                extracted_data[well] = value
-        
-        # Generate all 96 wells in order
-        for row_letter in 'ABCDEFGH':
-            for col_number in range(1, 13):
-                well = f"{row_letter}{col_number}"
-                if well in extracted_data and extracted_data[well] != '':
-                    value = extracted_data[well]
-                    quality = 'Check manually'
-                else:
-                    value = 'not extracted'
-                    quality = 'Manual entry required'
-                
-                writer.writerow([well, value, quality, assay_type])
-    else:
-        # Non-plate format - original logic
-        for sample in samples:
-            row = []
-            
-            if 'columns' in data:
-                # New simplified format - extract all values in header order (no calculation)
-                for header in headers:
-                    row.append(sample.get(header, ''))
-                # All data including quality is already in the row, no need to append extra
-                writer.writerow(row)
-                continue
-                
-            elif 'long_form_data' in data:
-                # Complex format (old flexible format)
-                std_vals = sample.get('standardized_values', {})
-                row.append(std_vals.get('sample_id', sample.get('row_id', 'Unknown')))
-                
-                concentration = std_vals.get('concentration_ng_ul', '')
-                a260_a280 = std_vals.get('a260_a280', '')
-                a260_a230 = std_vals.get('a260_a230', '')
-                
-                if 'Concentration (ng/uL)' in headers:
-                    row.append(concentration)
-                if 'A260/A280' in headers:
-                    row.append(a260_a280)
-                if 'A260/A230' in headers:
-                    row.append(a260_a230)
-                
-                # Use quality from data if available, otherwise mark for manual check
-                quality = sample.get('quality', sample.get('Quality Assessment', 'Check manually'))
-            else:
-                # Legacy format
-                row = [
-                    sample.get('sample_number', ''),
-                    sample.get('concentration', ''),
-                    sample.get('a260_a280', ''),
-                    sample.get('a260_a230', '')
-                ]
-                
-                # Use quality from data if available, otherwise mark for manual check
-                quality = sample.get('quality', sample.get('Quality Assessment', 'Check manually'))
-            
-            row.append(quality)
-            row.append(assay_type)
-            writer.writerow(row)
-    
-    return output.getvalue()
-
-
-def compress_image_for_email(image_data, max_size_kb=2000):
-    """Compress image to reduce email attachment size."""
-    try:
-        # Open image
-        img = Image.open(BytesIO(image_data))
-        
-        # Convert to RGB if necessary
-        if img.mode in ('RGBA', 'P'):
-            img = img.convert('RGB')
-        
-        # Start with moderate compression
-        quality = 85
-        compressed_data = None
-        
-        while quality >= 30:  # Don't go below 30% quality
-            output = BytesIO()
-            img.save(output, format='JPEG', quality=quality, optimize=True)
-            compressed_data = output.getvalue()
-            
-            # Check size
-            if len(compressed_data) <= max_size_kb * 1024:
-                break
-                
-            quality -= 15  # Reduce quality more aggressively
-        
-        return compressed_data if compressed_data else image_data
-    except Exception:
-        # If compression fails, return original
-        return image_data
-
-
-
-def send_success_email(recipients, csv_content, data, original_images):
-    """Send email with CSV attachment and original photos to multiple recipients."""
-    msg = MIMEMultipart()
-    
-    # Handle both single email (legacy) and list of emails (new CC feature)
-    if isinstance(recipients, str):
-        recipients = [recipients]
-    
-    primary_recipient = recipients[0]  # First is always the original sender
-    cc_recipients = recipients[1:] if len(recipients) > 1 else []
-    
-    assay_type = data.get('assay_type', 'Unknown')
-    sample_count = len(data['samples'])
-    commentary = data.get('commentary', 'No additional analysis provided.')
-    image_count = len(original_images) if isinstance(original_images, list) else 1
-    
-    msg['Subject'] = f'Lab Data Results - {assay_type} Analysis ({sample_count} samples, {image_count} images)'
-    msg['From'] = 'digitizer@seminalcapital.net'
-    msg['To'] = primary_recipient
-    msg['X-Lab-Data-Processed'] = 'true'  # Loop prevention header
-    
-    # Add CC header if there are CC recipients
-    if cc_recipients:
-        msg['CC'] = ', '.join(cc_recipients)
-    
-    # Check if this is plate format
-    is_plate_format = data.get('is_plate_format', False) or \
-                     (data['samples'] and 'well' in data['samples'][0])
-    
-    # Log plate format detection for debugging
-    logger.info("Email format detection", 
-               is_plate_format=is_plate_format,
-               has_is_plate_format_field=data.get('is_plate_format', False),
-               has_well_in_samples=(data['samples'] and 'well' in data['samples'][0]) if data['samples'] else False,
-               first_sample_structure=data['samples'][0] if data['samples'] else None)
-    
-    # Email body - simplified for plate readers
-    if is_plate_format:
-        body = f"""Your lab data has been digitized successfully!
-
-Instrument Type: {data.get('instrument', assay_type)}
-Format: 96-well plate
-Samples extracted: {sample_count} of 96 wells
-
-The detailed results are attached as a complete 96-well CSV. Wells not extracted by AI are marked as "not extracted" for manual review.
-
-Data Preview (first 5 wells):
-"""
-        # Show only first 5 samples for preview
-        for i, sample in enumerate(data['samples'][:5], 1):
-            well = sample.get('well', f'Sample {i}')
-            value = sample.get('value', 'N/A')
-            body += f"    {well}: {value}\n"
-        
-        if sample_count > 5:
-            body += f"    ... and {sample_count - 5} more wells (see CSV for complete data)\n"
-    else:
-        # Standard format with full details
-        body = f"""Your lab data has been digitized successfully!
-
-Assay Type: {assay_type}
-Images Processed: {image_count}
-Samples Extracted: {sample_count}
-
-ANALYSIS SUMMARY:
-{commentary}
-
-SAMPLE RESULTS:
-"""
-        
-        # Handle standard format
-        for i, sample in enumerate(data['samples'], 1):
-            # Try to get concentration from various possible fields
-            concentration = None
-            sample_id = None
-            a260_280 = None
-            a260_230 = None
-            
-            # Standard table format - try different column names
-            sample_id = sample.get('#', sample.get('sample_number', f'Sample {i}'))
-            concentration = sample.get('ng/μL', sample.get('ng/uL', sample.get('ng/無', sample.get('concentration', 'N/A'))))
-            a260_280 = sample.get('A260/A280', sample.get('a260_a280'))
-            a260_230 = sample.get('A260/A230', sample.get('a260_a230'))
-            
-            # Format the output
-            if isinstance(concentration, (int, float)) and concentration < 0:
-                body += f"    {sample_id}: INVALID (negative value: {concentration})\n"
-            elif a260_280 and a260_230:
-                body += f"    {sample_id}: {concentration} ng/uL (260/280: {a260_280}, 260/230: {a260_230})\n"
-            else:
-                body += f"    {sample_id}: {concentration}\n"
-    
-    body += f"""
-
-The detailed results are attached as a CSV file, along with your original image(s) for reference.
-
---
-Lab Data Digitization Service
-"""
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
-    # Attach CSV
-    csv_attachment = MIMEBase('text', 'csv')
-    csv_attachment.set_payload(csv_content)
-    encoders.encode_base64(csv_attachment)
-    csv_attachment.add_header(
-        'Content-Disposition',
-        f'attachment; filename=nanodrop_{assay_type.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")}_{sample_count}_samples.csv'
-    )
-    msg.attach(csv_attachment)
-    
-    # Attach compressed images
-    if isinstance(original_images, list):
-        for i, image_data in enumerate(original_images, 1):
-            # Compress image to reduce email size
-            compressed_image = compress_image_for_email(image_data, max_size_kb=2000)
-            
-            img_attachment = MIMEBase('image', 'jpeg')
-            img_attachment.set_payload(compressed_image)
-            encoders.encode_base64(img_attachment)
-            img_attachment.add_header(
-                'Content-Disposition',
-                f'attachment; filename=nanodrop_image_{i}.jpg'
-            )
-            msg.attach(img_attachment)
-    else:
-        # Single image (backward compatibility)
-        compressed_image = compress_image_for_email(original_images, max_size_kb=2000)
-        
-        img_attachment = MIMEBase('image', 'jpeg')
-        img_attachment.set_payload(compressed_image)
-        encoders.encode_base64(img_attachment)
-        img_attachment.add_header(
-            'Content-Disposition',
-            f'attachment; filename=original_nanodrop_image.jpg'
-        )
-        msg.attach(img_attachment)
-    
-    # Send email to all recipients (To + CC)
-    all_destinations = recipients  # This already includes primary + CC recipients
-    ses.send_raw_email(
-        Source=msg['From'],
-        Destinations=all_destinations,
-        RawMessage={'Data': msg.as_string()}
-    )
-
-
-def send_error_email(to_email, error_message):
-    """Send error notification email."""
-    ses.send_email(
-        Source='digitizer@seminalcapital.net',
-        Destination={'ToAddresses': [to_email]},
-        Message={
-            'Subject': {'Data': 'Lab Data Processing Error'},
-            'Body': {
-                'Text': {
-                    'Data': f"""
-                    Sorry, we couldn't process your lab instrument image.
-                    
-                    Error: {error_message}
-                    
-                    Please ensure:
-                    - You attached a clear photo of the instrument screen
-                    - The entire screen is visible
-                    - The image is in JPEG or PNG format
-                    
-                    --
-                    Lab Data Digitization Service
-                    """
-                }
-            }
-        }
-    )

@@ -21,7 +21,8 @@ from lambda_function import (
     extract_lab_data, 
     merge_lab_results, 
     generate_csv,
-    extract_images_from_email
+    extract_images_from_email,
+    assess_quality,
 )
 from tests.ground_truth_data import (
     LAMBDA_GROUND_TRUTH, 
@@ -39,6 +40,8 @@ class TestRealNanodropExtraction:
     @pytest.fixture(autouse=True)
     def check_api_key(self):
         """Ensure OpenAI API key is available for real testing."""
+        if os.environ.get('RUN_LLM_TESTS') != '1':
+            pytest.skip("LLM tests disabled (set RUN_LLM_TESTS=1 to enable)")
         if not os.environ.get('OPENAI_API_KEY'):
             pytest.skip("OPENAI_API_KEY not set - skipping real LLM tests")
     

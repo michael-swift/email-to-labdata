@@ -11,13 +11,12 @@ class TestProjectSetup:
         project_root = Path(__file__).parent.parent
         
         # Check main directories
-        assert (project_root / "tests").exists()
-        assert (project_root / "images").exists()
-        assert (project_root / "extracted_data").exists()
+        for dirname in ["tests", "src", "deploy", "images", "extracted_data"]:
+            assert (project_root / dirname).exists(), f"Missing directory: {dirname}"
         
-        # Check main files
-        assert (project_root / "lambda_function.py").exists()
-        assert (project_root / "llm_extractor.py").exists()
+        # Check critical source files
+        assert (project_root / "src" / "lambda_function.py").exists()
+        assert (project_root / "src" / "security_config.py").exists()
         
         # Check test subdirectories
         test_dirs = ["unit", "fixtures"]
@@ -29,9 +28,9 @@ class TestProjectSetup:
         """Test that necessary configuration files exist."""
         project_root = Path(__file__).parent.parent
         
-        assert (project_root / "requirements.txt").exists()
+        assert (project_root / "requirements-dev.txt").exists()
+        assert (project_root / "deploy" / "requirements.txt").exists()
         assert (project_root / "pyproject.toml").exists()
-        assert (project_root / ".env.test").exists()
     
     @pytest.mark.unit
     def test_fixtures_loaded(self, mock_nanodrop_data, mock_email_payload):

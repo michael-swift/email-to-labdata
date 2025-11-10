@@ -63,57 +63,19 @@ class SecurityConfig:
         self.cloudwatch = boto3.client('cloudwatch')
         self.table_name = f'{table_prefix}nanodrop-rate-limits'
         self._ensure_rate_limit_table()
-    
+
     def _ensure_rate_limit_table(self):
-        """Ensure DynamoDB table exists for rate limiting."""
+        """Attempt to load existing rate limit table; fail open if unavailable."""
         try:
-            self.rate_table = self.dynamodb.Table(self.table_name)
-            self.rate_table.load()
-        except Exception:
-            # Table doesn't exist - try to create it
-            try:
-                self._create_rate_limit_table()
-                self.rate_table = self.dynamodb.Table(self.table_name)
-            except Exception as e:
-                # If creation fails, disable rate limiting gracefully
-                self.rate_table = None
-                print(f"Warning: Could not create rate limiting table {self.table_name}: {e}. Rate limiting disabled.")
-    
-    def _create_rate_limit_table(self):
-        """Create DynamoDB table for rate limiting."""
-        table = self.dynamodb.create_table(
-            TableName=self.table_name,
-            KeySchema=[
-                {
-                    'AttributeName': 'email_hash',
-                    'KeyType': 'HASH'
-                }
-            ],
-            AttributeDefinitions=[
-                {
-                    'AttributeName': 'email_hash',
-                    'AttributeType': 'S'
-                }
-            ],
-            BillingMode='PAY_PER_REQUEST'
-        )
-        
-        # Wait for table to be created
-        table.meta.client.get_waiter('table_exists').wait(TableName=self.table_name)
-        
-        # Enable TTL after table creation (for compatibility)
-        try:
-            table.meta.client.update_time_to_live(
-                TableName=self.table_name,
-                TimeToLiveSpecification={
-                    'AttributeName': 'expiration_time',
-                    'Enabled': True
-                }
-            )
+            table = self.dynamodb.Table(self.table_name)
+            table.load()
+            self.rate_table = table
         except Exception as e:
-            print(f"Warning: Could not enable TTL: {e}")
-        
-        self.rate_table = table
+            self.rate_table = None
+            print(
+                f"Warning: Rate limiting table {self.table_name} unavailable: {e}."
+                " Rate limiting disabled."
+            )
     
     def validate_email_sender(self, from_email: str) -> Dict[str, any]:
         """Enhanced email validation - check for reputable domains."""
