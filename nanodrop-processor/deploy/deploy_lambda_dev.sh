@@ -24,6 +24,58 @@ log_warning() {
     echo -e "${YELLOW}[DEV WARNING]${NC} $1"
 }
 
+# Remove older DEV images automatically to keep the repo clean.
+cleanup_ecr_images() {
+    local keep_count=${ECR_IMAGES_TO_KEEP:-3}
+    log_info "Cleaning up old DEV ECR images (keeping $keep_count most recent)..."
+
+    local digest_output
+    if ! digest_output=$(aws ecr describe-images \
+        --repository-name $ECR_REPOSITORY_NAME \
+        --region $AWS_REGION \
+        --query 'sort_by(imageDetails,& imagePushedAt)[*].imageDigest' \
+        --output text 2>/dev/null); then
+        log_warning "Unable to list DEV ECR images; skipping cleanup"
+        return
+    fi
+
+    if [ -z "$digest_output" ] || [ "$digest_output" == "None" ]; then
+        log_info "No DEV images available for cleanup"
+        return
+    fi
+
+    local sanitized_output
+    sanitized_output=$(printf "%s\n" "$digest_output" | tr '\t' '\n' | sed '/^$/d')
+
+    local digest_array=()
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        digest_array+=("$line")
+    done <<< "$sanitized_output"
+
+    local total=${#digest_array[@]}
+
+    if [ "$total" -le "$keep_count" ]; then
+        log_info "DEV repository has $total image(s); nothing to delete"
+        return
+    fi
+
+    local delete_count=$((total - keep_count))
+    log_info "Deleting $delete_count old DEV image(s) from ECR..."
+
+    for ((i=0; i<delete_count; i++)); do
+        local digest="${digest_array[$i]}"
+        if aws ecr batch-delete-image \
+            --repository-name $ECR_REPOSITORY_NAME \
+            --region $AWS_REGION \
+            --image-ids imageDigest=$digest >/dev/null; then
+            log_info "Deleted old DEV image $digest"
+        else
+            log_warning "Failed to delete DEV image $digest"
+        fi
+    done
+}
+
 # Check prerequisites
 check_prerequisites() {
     log_info "Checking prerequisites for DEV environment..."
@@ -122,7 +174,10 @@ deploy_lambda() {
     
     # Step 7: Deploy Lambda function
     deploy_function
-    
+
+    # Step 7.5: Clean up older images now that the new one is live
+    cleanup_ecr_images
+
     # Step 8: Configure S3 trigger
     configure_s3_trigger
     

@@ -74,6 +74,15 @@ echo "OPENAI_API_KEY=your-key-here" > .env
 # 3. Send test email to verify
 ```
 
+The deploy scripts automatically prune old ECR images, keeping the 3 most recent
+pushes by default. Override this behavior with:
+
+```bash
+ECR_IMAGES_TO_KEEP=5 ./deploy/deploy_lambda.sh
+```
+
+if you want a larger image history in ECR.
+
 ## Debugging Lambda Issues
 
 ### 1. Check CloudWatch Logs
