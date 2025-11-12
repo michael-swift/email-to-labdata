@@ -396,7 +396,7 @@ deploy_function() {
             --timeout 120 \
             --memory-size 512 \
             --architectures arm64 \
-            --environment Variables={$ENV_VARS} || {
+            --environment "Variables={$ENV_VARS}" || {
                 log_error "Failed to create Lambda function"
                 exit 1
             }
@@ -414,7 +414,7 @@ deploy_function() {
             --timeout 120 \
             --memory-size 512 \
             --role arn:aws:iam::$AWS_ACCOUNT_ID:role/$ROLE_NAME \
-            --environment Variables={$ENV_VARS} || {
+            --environment "Variables={$ENV_VARS}" || {
                 log_warning "Failed to update configuration"
             }
         

@@ -275,7 +275,7 @@ class SecurityConfig:
         # Magic number validation for common image formats
         if not self._validate_image_magic_numbers(image_data):
             result['valid'] = False
-            result['errors'].append('File is not a valid image format (JPEG, PNG, or GIF)')
+            result['errors'].append('File is not a valid image format (JPEG or PNG)')
             return result
         
         try:
@@ -316,10 +316,6 @@ class SecurityConfig:
         if image_data[:8] == b'\x89\x50\x4e\x47\x0d\x0a\x1a\x0a':
             return True
         
-        # GIF magic numbers
-        if image_data[:6] in (b'GIF87a', b'GIF89a'):
-            return True
-        
         return False
     
     def validate_attachments(self, attachments: List[Dict]) -> Dict[str, any]:
@@ -344,7 +340,7 @@ class SecurityConfig:
             content_type = attachment.get('content_type', '')
             if content_type not in self.ALLOWED_MIME_TYPES:
                 result['valid'] = False
-                result['errors'].append(f"Image {i+1}: Unsupported file type '{content_type}'. Please send JPEG, PNG, or GIF images only.")
+                result['errors'].append(f"Image {i+1}: Unsupported file type '{content_type}'. Please send JPEG or PNG images only.")
             
             # Validate image content (includes size check and magic numbers)
             image_data = attachment.get('data', b'')

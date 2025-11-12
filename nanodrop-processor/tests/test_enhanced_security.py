@@ -99,7 +99,7 @@ class TestEnhancedSecurity(unittest.TestCase):
         result = self.security.validate_attachments(attachments)
         self.assertFalse(result['valid'])
         self.assertIn('Unsupported file type', result['errors'][0])
-        self.assertIn('JPEG, PNG, or GIF', result['errors'][0])
+        self.assertIn('JPEG or PNG', result['errors'][0])
     
     def test_comprehensive_validation(self):
         """Test complete validation flow with good image."""

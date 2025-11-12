@@ -196,10 +196,10 @@ def test_email_parsing():
             
             # Test image extraction
             images = lambda_function.extract_images_from_email(msg)
-            if len(images) == 1:
+            if len(images) == 1 and 'data' in images[0] and images[0].get('content_type') == 'image/jpeg':
                 print("✓ Image extraction works")
             else:
-                print(f"✗ Expected 1 image, got {len(images)}")
+                print(f"✗ Expected 1 JPEG image dict, got: {images}")
                 return False
         
         return True

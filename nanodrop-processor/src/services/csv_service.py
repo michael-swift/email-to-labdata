@@ -121,6 +121,25 @@ def _infer_dynamic_headers(samples):
     return headers
 
 
+def _sanitize_csv_row(row):
+    """Prevent CSV formula injection by escaping dangerous cell prefixes."""
+    sanitized_row = []
+    for value in row:
+        if value is None:
+            sanitized_row.append('')
+            continue
+        if isinstance(value, (int, float)):
+            sanitized_row.append(value)
+            continue
+        value_str = str(value)
+        stripped = value_str.lstrip()
+        if stripped.startswith(('=', '+', '-', '@')) or stripped.startswith(('\t', '\r')):
+            sanitized_row.append("'" + value_str)
+        else:
+            sanitized_row.append(value_str)
+    return sanitized_row
+
+
 def generate_csv(data: Dict[str, Any]) -> str:
     output = StringIO()
     writer = csv.writer(output)
@@ -192,7 +211,7 @@ def generate_csv(data: Dict[str, Any]) -> str:
     def _write_row(row):
         if len(row) > len(headers):
             row = row[:len(headers)]
-        writer.writerow(row)
+        writer.writerow(_sanitize_csv_row(row))
 
     if mode == 'plate':
         extracted_data = {}

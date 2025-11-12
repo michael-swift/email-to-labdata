@@ -82,6 +82,16 @@ def get_openai_client():
 def normalize_unicode_headers(data):
     return service_normalize_unicode_headers(data)
 
+def _extract_email_address(raw_address):
+    """Return a bare email address from a header field."""
+    if not raw_address:
+        return None
+    match = re.search(r'<(.+?)>', raw_address)
+    if match:
+        return match.group(1).strip()
+    return raw_address.strip()
+
+
 def lambda_handler(event, context):
     """Main Lambda handler - processes emails from S3."""
     # Set up logging context
@@ -107,6 +117,8 @@ def lambda_handler(event, context):
         msg = email.message_from_bytes(email_content)
         from_email = msg['From']
         subject = msg['Subject']
+        envelope_sender = _extract_email_address(msg.get('Return-Path'))
+        header_sender = _extract_email_address(from_email)
         
         # Loop prevention: Check if this is a results email we sent
         if (subject and "Lab Data Results" in subject) or \
@@ -119,13 +131,14 @@ def lambda_handler(event, context):
             logger.info("Ignoring already processed email", message_id=msg.get('Message-ID'))
             return {'statusCode': 200, 'body': 'Already processed'}
         
-        # Extract just the email address from the From field
-        # Handle formats like "Name <email@domain.com>" or just "email@domain.com"
-        email_match = re.search(r'<(.+?)>', from_email)
-        if email_match:
-            sender_email = email_match.group(1)
-        else:
-            sender_email = from_email.strip()
+        sender_email = envelope_sender or header_sender
+        if not sender_email:
+            logger.error("Unable to determine sender email", from_header=from_email, return_path=msg.get('Return-Path'))
+            fallback_recipient = header_sender or envelope_sender
+            if fallback_recipient:
+                send_error_email(fallback_recipient, "Could not determine sender email address.")
+            return {'statusCode': 400, 'body': 'Missing sender'}
+        primary_reply_email = header_sender or sender_email
         
         # Extract all recipients for reply-all functionality
         service_addresses = {'digitizer@seminalcapital.net', 'nanodrop@seminalcapital.net', 
@@ -185,19 +198,27 @@ def lambda_handler(event, context):
             email_validation = security.validate_email_sender(sender_email)
             if not email_validation['valid']:
                 security.log_security_event('EmailBlocked', sender_email, email_validation['reason'])
-                send_error_email(from_email, f"Email blocked: {email_validation['reason']}")
+                if primary_reply_email:
+                    send_error_email(primary_reply_email, f"Email blocked: {email_validation['reason']}")
                 return {'statusCode': 200, 'body': 'Email blocked'}
             
             # Check rate limits
             rate_check = security.check_rate_limit(sender_email)
             if not rate_check['allowed']:
                 security.log_security_event('RateLimitExceeded', sender_email, rate_check['reason'])
-                send_error_email(from_email, f"Rate limit exceeded: {rate_check['reason']}. Please try again in {rate_check['retry_after']} seconds.")
+                if primary_reply_email:
+                    send_error_email(primary_reply_email, f"Rate limit exceeded: {rate_check['reason']}. Please try again in {rate_check['retry_after']} seconds.")
                 return {'statusCode': 200, 'body': 'Rate limited'}
         
         except Exception as e:
             logger.error("Security validation failed", exception=e)
-            # Continue processing if security check fails (fail open for availability)
+            sanitized_error = security.sanitize_error_message(str(e))
+            if primary_reply_email:
+                send_error_email(primary_reply_email, "Security checks temporarily unavailable. Please try again later.")
+            return {
+                'statusCode': 500,
+                'body': json.dumps(f'Security validation failed: {sanitized_error}')
+            }
         
         # Extract all image attachments
         logger.info("Starting image extraction from email")
@@ -205,27 +226,28 @@ def lambda_handler(event, context):
         logger.info(f"Found {len(image_attachments) if image_attachments else 0} image attachments")
         if not image_attachments:
             logger.info("No image attachments found, sending error email")
-            send_error_email(from_email, "No image attachments found")
+            if primary_reply_email:
+                send_error_email(primary_reply_email, "No image attachments found")
             return {'statusCode': 200, 'body': 'No images found'}
         
         # Validate attachments
         try:
-            attachment_data = []
-            for img_data in image_attachments:
-                attachment_data.append({
-                    'content_type': 'image/jpeg',  # Assume JPEG for extracted images
-                    'data': img_data
-                })
-            
-            attachment_validation = security.validate_attachments(attachment_data)
+            attachment_validation = security.validate_attachments(image_attachments)
             if not attachment_validation['valid']:
                 security.log_security_event('InvalidAttachment', from_email, '; '.join(attachment_validation['errors']))
-                send_error_email(from_email, f"Invalid attachments: {'; '.join(attachment_validation['errors'])}")
+                if primary_reply_email:
+                    send_error_email(primary_reply_email, f"Invalid attachments: {'; '.join(attachment_validation['errors'])}")
                 return {'statusCode': 200, 'body': 'Invalid attachments'}
         
         except Exception as e:
             logger.error("Attachment validation failed", exception=e)
-            # Continue processing if attachment validation fails
+            sanitized_error = security.sanitize_error_message(str(e))
+            if primary_reply_email:
+                send_error_email(primary_reply_email, "Attachment validation unavailable. Please try again later.")
+            return {
+                'statusCode': 500,
+                'body': json.dumps(f'Attachment validation failed: {sanitized_error}')
+            }
         
         logger.info("Images found", image_count=len(image_attachments))
         
@@ -234,9 +256,12 @@ def lambda_handler(event, context):
         processed_images = []
         error_messages = []
         
-        for i, image_data in enumerate(image_attachments, 1):
+        for i, attachment in enumerate(image_attachments, 1):
             try:
                 logger.info("Processing image", image_number=i, total_images=len(image_attachments))
+                image_data = attachment.get('data')
+                if not image_data:
+                    raise ValueError("Attachment missing image bytes")
                 lab_data = extract_lab_data(image_data)
                 results_list.append(lab_data)
                 processed_images.append(image_data)
@@ -299,7 +324,8 @@ def lambda_handler(event, context):
                 error_type=error_type
             )
             
-            send_error_email(from_email, error_detail)
+            if primary_reply_email:
+                send_error_email(primary_reply_email, error_detail)
             return {'statusCode': 200, 'body': 'No data extracted'}
         
         # Merge results using LLM intelligence (with fixed fallback)
@@ -392,6 +418,7 @@ def lambda_handler(event, context):
         
     except Exception as e:
         logger.error("Email processing failed", exception=e)
+        sanitized_error = security.sanitize_error_message(str(e))
         
         # Log catastrophic failure to DynamoDB if we have sender info (fails gracefully)
         if 'sender_email' in locals() and 'processing_start_time' in locals():
@@ -403,37 +430,47 @@ def lambda_handler(event, context):
                 samples_extracted=0,
                 processing_time_ms=processing_time_ms,
                 success=False,
-                error_message=f"Catastrophic failure: {str(e)}",
+                error_message=f"Catastrophic failure: {sanitized_error}",
                 additional_data={
                     'error_type': 'system_error',
                     's3_key': locals().get('key', 'unknown')
                 }
             )
         
-        if 'from_email' in locals():
-            send_error_email(from_email, f"Processing error: {str(e)}")
+        error_recipient = locals().get('primary_reply_email')
+        if error_recipient:
+            send_error_email(error_recipient, f"Processing error: {sanitized_error}")
         return {
             'statusCode': 500,
-            'body': json.dumps(f'Error: {str(e)}')
+            'body': json.dumps(f'Error: {sanitized_error}')
         }
+
+
+ALLOWED_IMAGE_CONTENT_TYPES = {'image/jpeg', 'image/png', 'image/jpg'}
 
 
 def extract_image_from_email(msg):
     """Extract first image attachment from email."""
-    for part in msg.walk():
-        if part.get_content_type() in ['image/jpeg', 'image/png', 'image/jpg']:
-            return part.get_payload(decode=True)
+    images = extract_images_from_email(msg)
+    if images:
+        return images[0].get('data')
     return None
 
 
 def extract_images_from_email(msg):
-    """Extract all image attachments from email."""
+    """Extract all image attachments from email with MIME metadata."""
     images = []
     for part in msg.walk():
-        if part.get_content_type() in ['image/jpeg', 'image/png', 'image/jpg']:
+        content_type = part.get_content_type()
+        if content_type in ALLOWED_IMAGE_CONTENT_TYPES:
             image_data = part.get_payload(decode=True)
-            if image_data:
-                images.append(image_data)
+            if not image_data:
+                continue
+            images.append({
+                'content_type': content_type,
+                'data': image_data,
+                'filename': part.get_filename()
+            })
     return images
 
 
