@@ -1,6 +1,6 @@
 # Lab Data Digitization Service
 
-An AWS Lambda-based service that processes lab instrument images sent via email. Users email photos to `digitizer@seminalcapital.net` and receive CSV files with extracted data. Supports any lab instrument including Nanodrop spectrophotometers, plate readers, UV-Vis spectrometers, and more.
+An AWS Lambda-based service that processes lab instrument images sent via email. Users email photos to `d.i.g.i.t.i.z.e.r.@seminalcapital.net` and receive CSV files with extracted data. Supports any lab instrument I've tried including Nanodrop spectrophotometers, plate readers, UV-Vis spectrometers
 
 ## Current Architecture
 
@@ -11,7 +11,8 @@ User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
                     (Rate Limiting, Validation)
 ```
 
-**Status**: ✅ FULLY FUNCTIONAL - Production ready with security hardening
+
+![Minimal ASCII poster showing the digitizer workflow](images/minimal-ascii-poster.png)
 
 ## How It Works
 
@@ -36,7 +37,7 @@ User Email → SES → S3 → Lambda (Docker) → GPT-4o → SES Reply
 
 Send results to multiple recipients using any of these methods:
 
-**Multiple To Recipients** (phone-friendly):
+**Multiple To Recipients** (mobile clients):
 ```
 To: digitizer@seminalcapital.net, colleague@example.com
 ```
@@ -53,7 +54,7 @@ To: digitizer@seminalcapital.net, colleague1@example.com
 CC: colleague2@example.com
 ```
 
-All recipients receive the complete results including CSV file and original images. Perfect for sharing lab data with team members, supervisors, or collaborators.
+All recipients receive the complete results, including the CSV file and original images, so distribution to collaborators happens in a single email thread.
 
 ## Deployment
 
@@ -96,35 +97,7 @@ aws logs tail /aws/lambda/nanodrop-processor --follow
 python3 tests/test_lambda_local.py
 ```
 
-### 3. Common Issues
-- **Missing OPENAI_API_KEY**: Check Lambda environment variables
-- **Module import errors**: Dependencies not properly packaged
-- **S3 permissions**: Lambda role needs S3 and SES access
-- **Email parsing failures**: Check S3 bucket for raw email format
 
-## Development Quick Start
-
-```bash
-# Install dependencies
-make install
-
-# Run all tests
-make test
-
-# Test CC/reply-all functionality
-make test-cc
-
-# Deploy and test in dev environment
-make dev-test
-
-# Check logs
-make logs
-
-# Clean up temporary files
-make clean
-```
-
-See `make help` for all available commands and `CLAUDE.md` for quick reference.
 
 ## Project Structure
 
@@ -188,20 +161,6 @@ The Lambda function (`src/lambda_function.py`) handles:
 OPENAI_API_KEY=sk-...  # Required for GPT-4o API access
 ```
 
-## Testing
-
-```bash
-# Test locally without AWS
-python3 tests/test_lambda_local.py
-
-# Test CC/reply-all functionality
-python scripts/send_test_email.py --digitizer --to colleague@example.com --image path/to/image.jpg
-python scripts/send_test_email.py --digitizer --cc colleague@example.com --image path/to/image.jpg
-
-# Run full test suite
-make test
-```
-
 ## Monitoring
 
 - **CloudWatch Logs**: `/aws/lambda/nanodrop-processor`
@@ -253,4 +212,4 @@ Send photo of plate results → Receive complete 96-well CSV with all measuremen
 Send photo of absorbance table → Receive CSV with wavelengths and absorbance values
 ```
 
-Simply email any lab instrument screen photo to **`digitizer@seminalcapital.net`** and receive structured data within seconds!
+Send a lab instrument screen photo to **`digitizer@seminalcapital.net`** to receive structured data in the reply.
