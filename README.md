@@ -4,6 +4,8 @@
 
 AWS Lambda function that processes Nanodrop spectrophotometer screenshots sent via email, extracts measurement data using GPT-4o, and sends back CSV files with the results.
 
+<img src="nanodrop-processor/images/minimal-ascii-poster.png" alt="Nanodrop Processor Poster" width="640" />
+
 ## Debugging & Operations
 
 ### S3 Bucket Info
