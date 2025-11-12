@@ -6,6 +6,10 @@ AWS Lambda function that processes Nanodrop spectrophotometer screenshots sent v
 
 <img src="nanodrop-processor/images/minimal-ascii-poster.png" alt="Nanodrop Processor Poster" width="640" />
 
+## Data Policy
+- We do not retain or monetize submissions beyond the transient artifacts required to produce your CSV.
+- Every image and email you send is forwarded to OpenAI's GPT-4o API for extraction; only submit data you're comfortable sharing with that third party.
+
 ## Debugging & Operations
 
 ### S3 Bucket Info
